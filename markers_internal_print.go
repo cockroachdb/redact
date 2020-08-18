@@ -27,15 +27,23 @@ func annotateArgs(args []interface{}) {
 			// We need an intermediate struct because we don't
 			// want the fmt machinery to re-format the string
 			// object by adding quotes, expanding the byte slice, etc.
+			//
+			// NB: keep this logic synchronized with
+			// (RedactableString).SafeFormat().
 			args[i] = &passthrough{arg: []byte(v)}
+
 		case RedactableBytes:
+			// NB: keep this logic synchronized with
+			// (RedactableBytes).SafeFormat().
 			args[i] = &passthrough{arg: v}
 
 		case SafeFormatter:
 			// calls to Format() by fmt.Print will be redirected to
 			// v.SafeFormat(). This delegates the task of adding markers to
 			// the object itself.
-			args[i] = &redactFormatRedirect{v}
+			args[i] = &redactFormatRedirect{
+				func(p SafePrinter, verb rune) { v.SafeFormat(p, verb) },
+			}
 
 		case SafeValue:
 			// calls to Format() by fmt.Print will be redirected to a
@@ -52,19 +60,27 @@ func annotateArgs(args []interface{}) {
 			args[i] = &escapeArg{arg: v.SafeMessage(), enclose: false}
 
 		default:
-			// calls to Format() by fmt.Print will be redirected to a
-			// display of v within redaction markers if the type is
-			// considered unsafe, without markers otherwise. In any case,
-			// occurrences of delimiters within are escaped.
-			args[i] = &escapeArg{arg: v, enclose: !isSafeValue(v)}
+			if err, ok := v.(error); ok && redactErrorFn != nil {
+				// We place this case after the other cases above, in case
+				// the error object knows how to print itself safely already.
+				args[i] = &redactFormatRedirect{
+					func(p SafePrinter, verb rune) { redactErrorFn(err, p, verb) },
+				}
+			} else {
+				// calls to Format() by fmt.Print will be redirected to a
+				// display of v within redaction markers if the type is
+				// considered unsafe, without markers otherwise. In any case,
+				// occurrences of delimiters within are escaped.
+				args[i] = &escapeArg{arg: v, enclose: !isSafeValue(v)}
+			}
 		}
 	}
 }
 
-// redactFormatRedirect wraps a SafeFormatter object and uses its
-// SafeFormat method as-is to implement fmt.Formatter.
+// redactFormatRedirect wraps a safe print callback and uses it to
+// implement fmt.Formatter.
 type redactFormatRedirect struct {
-	arg SafeFormatter
+	printFn func(p SafePrinter, verb rune)
 }
 
 // Format implements fmt.Formatter.
@@ -77,7 +93,7 @@ func (r *redactFormatRedirect) Format(s fmt.State, verb rune) {
 	}()
 	p := &printer{}
 	p.escapeState = makeEscapeState(s, &p.buf)
-	r.arg.SafeFormat(p, verb)
+	r.printFn(p, verb)
 	_, _ = s.Write(p.buf.Bytes())
 }
 
@@ -134,4 +150,15 @@ type printerfn struct {
 // SafeFormat implements the SafeFormatter interface.
 func (p printerfn) SafeFormat(w SafePrinter, _ rune) {
 	p.fn(w)
+}
+
+// redactErrorFn can be injected from an error library
+// to render error objects safely.
+var redactErrorFn func(err error, p SafePrinter, verb rune)
+
+// RegisterRedactErrorFn registers an error redaction function for use
+// during automatic redaction by this package.
+// Provided e.g. by cockroachdb/errors.
+func RegisterRedactErrorFn(fn func(err error, p SafePrinter, verb rune)) {
+	redactErrorFn = fn
 }

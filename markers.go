@@ -42,6 +42,13 @@ func (s RedactableString) ToBytes() RedactableBytes {
 	return RedactableBytes([]byte(string(s)))
 }
 
+// SafeFormat formats the redactable safely.
+func (s RedactableString) SafeFormat(sp SafePrinter, _ rune) {
+	// As per annotateArgs() in markers_internal_print.go,
+	// we consider the redactable string not further formattable.
+	sp.Print(s)
+}
+
 // RedactableBytes is like RedactableString but is a byte slice.
 //
 // Instances of RedactableBytes should not be constructed directly;
@@ -65,6 +72,13 @@ func (s RedactableBytes) Redact() RedactableBytes {
 // ToString converts the byte slice to a string.
 func (s RedactableBytes) ToString() RedactableString {
 	return RedactableString(string([]byte(s)))
+}
+
+// SafeFormat formats the redactable safely.
+func (s RedactableBytes) SafeFormat(sp SafePrinter, _ rune) {
+	// As per annotateArgs() in markers_internal_print.go,
+	// we consider the redactable bytes not further formattable.
+	sp.Print(s)
 }
 
 // EscapeBytes escapes markers inside the given byte slice and encloses
