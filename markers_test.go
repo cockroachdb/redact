@@ -209,7 +209,7 @@ func TestRedactStream(t *testing.T) {
 		{"%q", "abc ", `‹"abc "›`},
 		{"%v", "abc\n ", "‹abc›"},
 		{"%v", "abc \n\n", "‹abc›"},
-		{"%v", " \n\nabc", "‹ \n\nabc›"},
+		{"%v", " \n\nabc", "‹ ›\n\n‹abc›"},
 		{"%v", "‹abc›", "‹?abc?›"},
 		{"%v", 123, "‹123›"},
 		{"%05d", 123, "‹00123›"},

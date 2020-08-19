@@ -87,20 +87,38 @@ func (p *escapeWriter) Write(b []byte) (int, error) {
 	// Now write the string.
 	k := 0
 	for i := 0; i < len(b); i++ {
-		// Ensure that occurrences of the delimiter inside the string get
-		// escaped.
-		if i+ls <= len(b) && bytes.Equal(b[i:i+ls], start) {
+		if b[i] == '\n' && p.enclose {
+			// Avoid enclosing newline characters inside redaction markers.
+			// This is important when redact is used to render errors, where
+			// sub-strings split at newline characters are rendered
+			// separately.
 			st = p.doWrite(b[k:i], st, true)
-			st = p.doWrite(escape, st, false)
-			st.l += ls
-			k = i + ls
-			i += ls - 1
-		} else if i+le <= len(b) && bytes.Equal(b[i:i+le], end) {
-			st = p.doWrite(b[k:i], st, true)
-			st = p.doWrite(escape, st, false)
-			st.l += le
-			k = i + le
-			i += le - 1
+			st = p.doWrite(end, st, false)
+			lastNewLine := i
+			for b[lastNewLine] == '\n' && lastNewLine < len(b) {
+				lastNewLine++
+			}
+			st = p.doWrite(b[i:lastNewLine], st, true)
+			st = p.doWrite(start, st, false)
+			st.l += lastNewLine - i
+			k = lastNewLine
+			i = lastNewLine - 1
+		} else {
+			// Ensure that occurrences of the delimiter inside the string get
+			// escaped.
+			if i+ls <= len(b) && bytes.Equal(b[i:i+ls], start) {
+				st = p.doWrite(b[k:i], st, true)
+				st = p.doWrite(escape, st, false)
+				st.l += ls
+				k = i + ls
+				i += ls - 1
+			} else if i+le <= len(b) && bytes.Equal(b[i:i+le], end) {
+				st = p.doWrite(b[k:i], st, true)
+				st = p.doWrite(escape, st, false)
+				st.l += le
+				k = i + le
+				i += le - 1
+			}
 		}
 	}
 	st = p.doWrite(b[k:], st, true)
