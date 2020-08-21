@@ -100,7 +100,6 @@ func (p *escapeWriter) Write(b []byte) (int, error) {
 			}
 			st = p.doWrite(b[i:lastNewLine], st, true)
 			st = p.doWrite(start, st, false)
-			st.l += lastNewLine - i
 			k = lastNewLine
 			i = lastNewLine - 1
 		} else {

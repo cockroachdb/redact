@@ -316,3 +316,25 @@ type safemsg struct {
 var _ SafeMessager = (*safemsg)(nil)
 
 func (p *safemsg) SafeMessage() string { return p.s }
+
+// TestFormatRedirect checks that the count return from the
+// (*escapeWriter).Write() method is correct when there are newline
+// characters.
+func TestFormatRedirect(t *testing.T) {
+	v := &fmter{}
+	if expected, actual := "‹hello›\n‹world›", string(Sprintf("%v", v)); expected != actual {
+		t.Errorf("expected %q, got %q", expected, actual)
+	}
+	if expected, actual := "‹hello›\n‹world›", string(Sprintf("%+v", v)); expected != actual {
+		t.Errorf("expected %q, got %q", expected, actual)
+	}
+}
+
+type fmter struct{}
+
+// Format implements the fmt.Formatter interface.
+func (ef *fmter) Format(s fmt.State, verb rune) {
+	var buf bytes.Buffer
+	buf.WriteString("hello\nworld")
+	_, _ = buf.WriteTo(s)
+}
