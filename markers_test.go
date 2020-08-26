@@ -33,6 +33,7 @@ func TestPrinter(t *testing.T) {
 		{func(w p) { w.SafeRune('☃') }, `☃`},
 		{func(w p) { w.UnsafeString("rs") }, `‹rs›`},
 		{func(w p) { w.UnsafeByte('t') }, `‹t›`},
+		{func(w p) { w.UnsafeByte(startRedactableBytes[0]) }, `‹?›`},
 		{func(w p) { w.UnsafeBytes([]byte("uv")) }, `‹uv›`},
 		{func(w p) { w.UnsafeRune('🛑') }, `‹🛑›`},
 		{func(w p) { w.Print("fg", safe("hi")) }, `‹fg› hi`},

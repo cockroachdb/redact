@@ -51,6 +51,9 @@ func TestBuilder(t *testing.T) {
 	b.UnsafeByte('U')
 	b.SafeRune('\n')
 
+	b.UnsafeByte(startRedactableBytes[0])
+	b.SafeRune('\n')
+
 	b.UnsafeBytes([]byte("UUU"))
 	b.SafeRune('\n')
 
@@ -65,6 +68,7 @@ S
 ‹unsafe›
 ‹U›
 ‹U›
+‹?›
 ‹UUU›
 `
 	if actualR != expectedR {
@@ -86,6 +90,7 @@ S
 unsafe
 U
 U
+?
 UUU
 `
 	if actual != expected {
