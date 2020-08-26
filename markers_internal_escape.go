@@ -145,3 +145,49 @@ func (p *escapeWriter) doWrite(b []byte, st escapeResult, count bool) escapeResu
 	st.err = err
 	return st
 }
+
+// internalEscapeBytes escapes redaction markers in the provided buf
+// starting at the location startLoc.
+// The bytes before startLoc are considered safe (already escaped).
+func internalEscapeBytes(b []byte, startLoc int) (res []byte) {
+	copied := false
+	res = b
+	start := startRedactableBytes
+	ls := len(startRedactableS)
+	end := endRedactableBytes
+	le := len(endRedactableS)
+	escape := escapeBytes
+
+	k := 0
+	for i := startLoc; i < len(b); i++ {
+		// Ensure that occurrences of the delimiter inside the string get
+		// escaped.
+		if i+ls <= len(b) && bytes.Equal(b[i:i+ls], start) {
+			if !copied {
+				res = make([]byte, 0, len(b)+len(escape))
+				copied = true
+			}
+			if copied {
+				res = append(res, b[k:i]...)
+			}
+			res = append(res, escape...)
+			k = i + ls
+			i += ls - 1
+		} else if i+le <= len(b) && bytes.Equal(b[i:i+le], end) {
+			if !copied {
+				res = make([]byte, 0, len(b)+len(escape))
+				copied = true
+			}
+			if copied {
+				res = append(res, b[k:i]...)
+			}
+			res = append(res, escape...)
+			k = i + le
+			i += le - 1
+		}
+	}
+	if copied {
+		res = append(res, b[k:]...)
+	}
+	return
+}
