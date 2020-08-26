@@ -15,8 +15,9 @@
 package redact
 
 import (
-	"fmt"
 	"io"
+
+	internalFmt "github.com/cockroachdb/redact/internal"
 )
 
 // Sprint prints out the arguments and encloses unsafe bits
@@ -26,8 +27,13 @@ import (
 // If a RedactableString or RedactableBytes argument is passed,
 // it is reproduced as-is without escaping.
 func Sprint(args ...interface{}) RedactableString {
-	annotateArgs(args)
-	return RedactableString(fmt.Sprint(args...))
+	p := internalFmt.NewInternalPrinter()
+	internalFmt.SetHook(p, printArgFn)
+	internalFmt.DoPrint(p, args)
+	redactLastWrites(p)
+	s := RedactableString(internalFmt.Buf(p))
+	internalFmt.Free(p)
+	return s
 }
 
 // Sprintf formats the arguments and encloses unsafe bits
@@ -38,8 +44,13 @@ func Sprint(args ...interface{}) RedactableString {
 // is responsible to ensure that the markers are not present
 // in the format string.
 func Sprintf(format string, args ...interface{}) RedactableString {
-	annotateArgs(args)
-	return RedactableString(fmt.Sprintf(format, args...))
+	p := internalFmt.NewInternalPrinter()
+	internalFmt.SetHook(p, printArgFn)
+	internalFmt.DoPrintf(p, format, args)
+	redactLastWrites(p)
+	s := RedactableString(internalFmt.Buf(p))
+	internalFmt.Free(p)
+	return s
 }
 
 // Sprintfn produces a RedactableString using the provided
@@ -64,14 +75,24 @@ func StringWithoutMarkers(f SafeFormatter) string {
 
 // Fprint is like Sprint but outputs the redactable
 // string to the provided Writer.
-func Fprint(w io.Writer, args ...interface{}) (int, error) {
-	annotateArgs(args)
-	return fmt.Fprint(w, args...)
+func Fprint(w io.Writer, args ...interface{}) (n int, err error) {
+	p := internalFmt.NewInternalPrinter()
+	internalFmt.SetHook(p, printArgFn)
+	internalFmt.DoPrint(p, args)
+	redactLastWrites(p)
+	n, err = w.Write(internalFmt.Buf(p))
+	internalFmt.Free(p)
+	return
 }
 
 // Fprintf is like Sprintf but outputs the redactable string to the
 // provided Writer.
-func Fprintf(w io.Writer, format string, args ...interface{}) (int, error) {
-	annotateArgs(args)
-	return fmt.Fprintf(w, format, args...)
+func Fprintf(w io.Writer, format string, args ...interface{}) (n int, err error) {
+	p := internalFmt.NewInternalPrinter()
+	internalFmt.SetHook(p, printArgFn)
+	internalFmt.DoPrintf(p, format, args)
+	redactLastWrites(p)
+	n, err = w.Write(internalFmt.Buf(p))
+	internalFmt.Free(p)
+	return
 }
