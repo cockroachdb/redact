@@ -14,66 +14,100 @@
 
 package redact
 
-import "fmt"
+import (
+	"fmt"
 
-// annotateArgs wraps the arguments to one of the print functions with
-// an indirect formatter which either encloses the result of the
-// display between redaction markers, or not.
-func annotateArgs(args []interface{}) {
-	for i, arg := range args {
+	internalFmt "github.com/cockroachdb/redact/internal"
+)
+
+// printArgFn is the hook injected into the standard fmt logic
+// by the printer functions in markers_print.go.
+func printArgFn(p *internalFmt.InternalPrinter, arg interface{}, verb rune) (newState int) {
+	redactLastWrites(p)
+
+	if verb == 'T' {
+		// If the value was wrapped, reveal its original type. Anything else is not very useful.
 		switch v := arg.(type) {
-		case RedactableString:
-			// Already formatted as redactable. Include as-is.
-			// We need an intermediate struct because we don't
-			// want the fmt machinery to re-format the string
-			// object by adding quotes, expanding the byte slice, etc.
-			//
-			// NB: keep this logic synchronized with
-			// (RedactableString).SafeFormat().
-			args[i] = &passthrough{arg: []byte(v)}
+		case safeWrapper:
+			arg = v.a
+		case unsafeWrap:
+			arg = v.a
+		}
 
-		case RedactableBytes:
-			// NB: keep this logic synchronized with
-			// (RedactableBytes).SafeFormat().
-			args[i] = &passthrough{arg: v}
+		// Shortcut: %T is always safe to print as-is.
+		internalFmt.PrintArg(p, arg, verb)
+		return len(internalFmt.Buf(p))
+	}
 
-		case SafeFormatter:
-			// calls to Format() by fmt.Print will be redirected to
-			// v.SafeFormat(). This delegates the task of adding markers to
-			// the object itself.
-			args[i] = &redactFormatRedirect{
-				func(p SafePrinter, verb rune) { v.SafeFormat(p, verb) },
-			}
+	// RedactableBytes/RedactableString are already formatted as
+	// redactable. Include them as-is.
+	//
+	// NB: keep this logic synchronized with
+	// (RedactableString/Bytes).SafeFormat().
+	switch v := arg.(type) {
+	case RedactableString:
+		internalFmt.Append(p, []byte(v))
+		return len(internalFmt.Buf(p))
+	case RedactableBytes:
+		internalFmt.Append(p, []byte(v))
+		return len(internalFmt.Buf(p))
+	}
 
-		case SafeValue:
-			// calls to Format() by fmt.Print will be redirected to a
-			// display of v without redaction markers.
-			//
-			// Note that we can't let the value be displayed as-is because
-			// we must prevent any marker inside the value from leaking into
-			// the result. (We want to avoid mismatched markers.)
-			args[i] = &escapeArg{arg: arg, enclose: false}
+	arg = annotateArg(arg)
+	internalFmt.PrintArg(p, arg, verb)
+	return len(internalFmt.Buf(p))
+}
 
-		case SafeMessager:
-			// Obsolete interface.
-			// TODO(knz): Remove this.
-			args[i] = &escapeArg{arg: v.SafeMessage(), enclose: false}
+// redactLastWrites escapes any markers that were added by the
+// internals of the printf functions, for example
+// if markers were present in the format string.
+func redactLastWrites(p *internalFmt.InternalPrinter) {
+	state := internalFmt.GetState(p)
+	newBuf := internalEscapeBytes(internalFmt.Buf(p), state)
+	internalFmt.SetState(p, newBuf)
+}
 
-		default:
-			if err, ok := v.(error); ok && redactErrorFn != nil {
-				// We place this case after the other cases above, in case
-				// the error object knows how to print itself safely already.
-				args[i] = &redactFormatRedirect{
-					func(p SafePrinter, verb rune) { redactErrorFn(err, p, verb) },
-				}
-			} else {
-				// calls to Format() by fmt.Print will be redirected to a
-				// display of v within redaction markers if the type is
-				// considered unsafe, without markers otherwise. In any case,
-				// occurrences of delimiters within are escaped.
-				args[i] = &escapeArg{arg: v, enclose: !isSafeValue(v)}
+// annotateArg wraps the arguments to one of the print functions with
+// an indirect formatter which ensures that redaction markers inside
+// the representation of the object are escaped, and optionally
+// encloses the result of the display between redaction markers.
+func annotateArg(arg interface{}) interface{} {
+	switch v := arg.(type) {
+	case SafeFormatter:
+		// calls to Format() by fmt.Print will be redirected to
+		// v.SafeFormat(). This delegates the task of adding markers to
+		// the object itself.
+		return &redactFormatRedirect{
+			func(p SafePrinter, verb rune) { v.SafeFormat(p, verb) },
+		}
+
+	case SafeValue:
+		// calls to Format() by fmt.Print will be redirected to a
+		// display of v without redaction markers.
+		//
+		// Note that we can't let the value be displayed as-is because
+		// we must prevent any marker inside the value from leaking into
+		// the result. (We want to avoid mismatched markers.)
+		return &escapeArg{arg: arg, enclose: false}
+
+	case SafeMessager:
+		// Obsolete interface.
+		// TODO(knz): Remove this.
+		return &escapeArg{arg: v.SafeMessage(), enclose: false}
+
+	default:
+		if err, ok := v.(error); ok && redactErrorFn != nil {
+			// We place this case after the other cases above, in case
+			// the error object knows how to print itself safely already.
+			return &redactFormatRedirect{
+				func(p SafePrinter, verb rune) { redactErrorFn(err, p, verb) },
 			}
 		}
+		// calls to Format() by fmt.Print will be redirected to a
+		// display of v within redaction markers if the type is
+		// considered unsafe, without markers otherwise. In any case,
+		// occurrences of delimiters within are escaped.
+		return &escapeArg{arg: v, enclose: !isSafeValue(v)}
 	}
 }
 

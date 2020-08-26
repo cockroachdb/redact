@@ -36,7 +36,7 @@ func TestPrinter(t *testing.T) {
 		{func(w p) { w.UnsafeByte(startRedactableBytes[0]) }, `‹?›`},
 		{func(w p) { w.UnsafeBytes([]byte("uv")) }, `‹uv›`},
 		{func(w p) { w.UnsafeRune('🛑') }, `‹🛑›`},
-		{func(w p) { w.Print("fg", safe("hi")) }, `‹fg› hi`},
+		{func(w p) { w.Print("fg", safe("hi")) }, `‹fg›hi`},
 		{func(w p) { w.Printf("jk %s %s", "lm", safe("no")) }, `jk ‹lm› no`},
 		// Direct access to the fmt.State.
 		{func(w p) { _, _ = w.Write([]byte("pq")) }, `‹pq›`},
@@ -45,14 +45,14 @@ func TestPrinter(t *testing.T) {
 		{func(w p) { w.SafeRune('‹') }, `?`},
 		{func(w p) { w.SafeRune('›') }, `?`},
 		{func(w p) { w.Print("a ‹ b › c", safe("d ‹ e › f")) },
-			`‹a ? b ? c› d ? e ? f`},
+			`‹a ? b ? c›d ? e ? f`},
 		{func(w p) { w.Printf("f %s %s", "a ‹ b › c", safe("d ‹ e › f")) },
 			`f ‹a ? b ? c› d ? e ? f`},
 		// Space and newlines at the end of an unsafe string get removed,
 		// but not at the end of a safe string.
 		{func(w p) { w.SafeString("ab \n ") }, "ab \n "},
 		{func(w p) { w.UnsafeString("cd \n ") }, `‹cd›`},
-		{func(w p) { w.Print("ab ", safe("cd ")) }, "‹ab› cd "},
+		{func(w p) { w.Print("ab ", safe("cd ")) }, "‹ab›cd "},
 		{func(w p) { w.Printf("ab :%s: :%s: ", "cd ", safe("de ")) }, "ab :‹cd›: :de : "},
 		// Spaces as runes get preserved.
 		{func(w p) { w.SafeRune(' ') }, ` `},
@@ -61,7 +61,7 @@ func TestPrinter(t *testing.T) {
 		{func(w p) { w.UnsafeRune('\n') }, "‹\n›"},
 		// The Safe() API turns anything into something safe. However, the contents
 		// still get escaped as needed.
-		{func(w p) { w.Print("ab ", Safe("c‹d›e ")) }, "‹ab› c?d?e "},
+		{func(w p) { w.Print("ab ", Safe("c‹d›e ")) }, "‹ab›c?d?e "},
 		{func(w p) { w.Printf("ab %03d ", Safe(12)) }, "ab 012 "},
 		// Something that'd be otherwise safe, becomes unsafe with Unsafe().
 		{func(w p) { w.Print(Unsafe(SafeString("abc"))) }, "‹abc›"},
@@ -75,9 +75,41 @@ func TestPrinter(t *testing.T) {
 		{func(w p) { w.Printf("%03d", Unsafe(12)) }, "‹012›"},
 		// A string that's already redactable gets included as-is;
 		// in that case, the printf verb and flags are ignored.
-		{func(w p) { w.Print("ab ", Sprint(12, Safe(34))) }, "‹ab› ‹12› 34"},
+		{func(w p) { w.Print("ab ", Sprint(12, Safe(34))) }, "‹ab›‹12› 34"},
 		{func(w p) { w.Printf("ab %q", Sprint(12, Safe(34))) }, "ab ‹12› 34"},
 		{func(w p) { w.Printf("ab %d", Sprint(12, Safe(34))) }, "ab ‹12› 34"},
+		// Nil untyped objects get formatted as redactable unless marked safe.
+		{func(w p) { w.Printf("ab %v", nil) }, "ab ‹<nil>›"},
+		{func(w p) { w.Printf("ab %v", Safe(nil)) }, "ab <nil>"},
+		// Reflected values can be formatted too.
+		{func(w p) { w.Printf("ab %.1f", reflect.ValueOf(12.3456)) }, "ab ‹12.3›"},
+		{func(w p) { w.Printf("ab %.1f", Safe(reflect.ValueOf(12.3456))) }, "ab 12.3"},
+
+		// Check for bad verbs.
+		{func(w p) { w.Printf("ab %d", true) }, "ab ‹%!d(bool=true)›"},
+		{func(w p) { w.Printf("ab %d", Safe(true)) }, "ab %!d(bool=true)"},
+		{func(w p) { w.Printf("ab %d") }, "ab %!d(MISSING)"},
+		{func(w p) { w.Printf("ab %[2]d", 123) }, "ab %!d(BADINDEX)"},
+		{func(w p) { w.Printf("ab %.*d", -1, 123) }, "ab %!(BADPREC)‹123›"},
+		// A badly formed verb does not leak information.
+		{func(w p) { w.Printf("ab %2", 123) }, "ab %!(NOVERB)%!(EXTRA int=‹123›)"},
+
+		// The %T verb does what it says on the label. The type itself is
+		// considered safe.
+		{func(w p) { w.Printf("ab %T", 123) }, "ab int"},
+		{func(w p) { w.Printf("ab %T", Safe(123)) }, "ab int"},
+		{func(w p) { w.Printf("ab %T", Unsafe(123)) }, "ab int"},
+
+		// A struct does not get recursively redacted, for now.
+		{func(w p) { w.Print(&complexObj{"somestring"}) }, "‹&{somestring}›"},
+		{func(w p) { w.Printf("%v", &complexObj{"somestring"}) }, "‹&{somestring}›"},
+		{func(w p) { w.Printf("%+v", &complexObj{"somestring"}) }, "‹&{v:somestring}›"},
+		{func(w p) { w.Printf("%#v", &complexObj{"somestring"}) }, `‹&redact.complexObj{v:"somestring"}›`},
+		// However it can be marked safe.
+		{func(w p) { w.Print(Safe(&complexObj{"somestring"})) }, "&{somestring}"},
+		{func(w p) { w.Printf("%v", Safe(&complexObj{"somestring"})) }, "&{somestring}"},
+		{func(w p) { w.Printf("%+v", Safe(&complexObj{"somestring"})) }, "&{v:somestring}"},
+		{func(w p) { w.Printf("%#v", Safe(&complexObj{"somestring"})) }, `&redact.complexObj{v:"somestring"}`},
 	}
 
 	var methods = []struct {
@@ -102,6 +134,30 @@ func TestPrinter(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestInternalEscape(t *testing.T) {
+	testCases := []struct {
+		input    []byte
+		start    int
+		expected string
+	}{
+		{nil, 0, ""},
+		{[]byte(""), 0, ""},
+		{[]byte("abc"), 0, "abc"},
+		{[]byte("‹abc›"), 0, "?abc?"},
+		{[]byte("‹abc›"), 3, "‹abc?"},
+		{[]byte("‹abc›def›ghi"), 3, "‹abc?def?ghi"},
+		{[]byte("‹abc›"), len([]byte("‹abc›")), "‹abc›"},
+		{[]byte("‹abc›‹def›"), len([]byte("‹abc›")), "‹abc›?def?"},
+	}
+
+	for _, tc := range testCases {
+		actual := string(internalEscapeBytes(tc.input, tc.start))
+		if actual != tc.expected {
+			t.Errorf("%q/%d: expected %q, got %q", string(tc.input), tc.start, tc.expected, actual)
+		}
 	}
 }
 
@@ -206,6 +262,7 @@ func TestRedactStream(t *testing.T) {
 	}{
 		{"%v", "", "‹›"},
 		{"%v", " ", "‹›"},
+		{"‹› %v ›››", "abc", "?? ‹abc› ???"},
 		{"%v", "abc ", "‹abc›"},
 		{"%q", "abc ", `‹"abc "›`},
 		{"%v", "abc\n ", "‹abc›"},

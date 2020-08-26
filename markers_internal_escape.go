@@ -145,3 +145,54 @@ func (p *escapeWriter) doWrite(b []byte, st escapeResult, count bool) escapeResu
 	st.err = err
 	return st
 }
+
+// internalEscapeBytes escapes redaction markers in the provided buf
+// starting at the location startLoc.
+// The bytes before startLoc are considered safe (already escaped).
+func internalEscapeBytes(b []byte, startLoc int) (res []byte) {
+	// Note: we use len(..RedactableS) and not len(...RedactableBytes)
+	// because the ...S variant is a compile-time constant so this
+	// accelerates the loops below.
+	start, ls := startRedactableBytes, len(startRedactableS)
+	end, le := endRedactableBytes, len(endRedactableS)
+	escape := escapeBytes
+
+	// res is the output slice. In the common case where there is
+	// nothing to escape, the input slice is returned directly
+	// and no allocation takes place.
+	res = b
+	// copied is true if and only if `res` is a copy of `b`.  It only
+	// turns to true if the loop below finds something to escape.
+	copied := false
+	// k is the index in b up to (and excluding) the byte which we've
+	// already copied into res (if copied=true).
+	k := 0
+
+	for i := startLoc; i < len(b); i++ {
+		// Ensure that occurrences of the delimiter inside the string get
+		// escaped.
+		if i+ls <= len(b) && bytes.Equal(b[i:i+ls], start) {
+			if !copied {
+				res = make([]byte, 0, len(b)+len(escape))
+				copied = true
+			}
+			res = append(res, b[k:i]...)
+			res = append(res, escape...)
+			k = i + ls
+			i += ls - 1
+		} else if i+le <= len(b) && bytes.Equal(b[i:i+le], end) {
+			if !copied {
+				res = make([]byte, 0, len(b)+len(escape))
+				copied = true
+			}
+			res = append(res, b[k:i]...)
+			res = append(res, escape...)
+			k = i + le
+			i += le - 1
+		}
+	}
+	if copied {
+		res = append(res, b[k:]...)
+	}
+	return
+}
