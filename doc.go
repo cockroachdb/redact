@@ -42,10 +42,10 @@
 // Alternatively:
 //
 // - you can implement the SafeValue interface, which tells the
-//   redact package to always the default formatting of a type
-//   as safe and thus not included inside redaction markers.
+// redact package to always the default formatting of a type
+// as safe and thus not included inside redaction markers.
 //
 // - you can include a value within redact.Safe() and redact.Unsafe()
-//   in redact.Sprintf / redact.Fprintf calls, to force
-//   the omission or inclusion of redaction markers.
+// in redact.Sprintf / redact.Fprintf calls, to force
+// the omission or inclusion of redaction markers.
 package redact
