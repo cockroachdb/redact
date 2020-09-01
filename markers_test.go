@@ -325,10 +325,33 @@ func TestRedactStream(t *testing.T) {
 	}
 }
 
+func TestEscapeBytes(t *testing.T) {
+	testCases := []struct {
+		input    string
+		expected string
+	}{
+		{"", "‹›"},
+		{" ", "‹ ›"},
+		{"abc", "‹abc›"},
+		{"ab›‹c", "‹ab??c›"},
+		{"abc\n\ncde", "‹abc›\n\n‹cde›"},
+		{"\n abc ", "‹›\n‹ abc ›"},
+	}
+
+	for _, tc := range testCases {
+		input := []byte(tc.input)
+		actual := EscapeBytes(input)
+		actualS := string(actual)
+		if actualS != tc.expected {
+			t.Errorf("%q: expected %q, got %q", tc.input, tc.expected, actualS)
+		}
+	}
+}
+
 func TestHelperForErrorf(t *testing.T) {
-	origErr := errors.New("universe")
+	origErr := errors.New("small\nuniverse")
 	s, e := HelperForErrorf("hello %s", origErr)
-	if actual, expected := string(s), `hello ‹universe›`; actual != expected {
+	if actual, expected := string(s), "hello ‹small›\n‹universe›"; actual != expected {
 		t.Errorf("expected %q, got %q", expected, actual)
 	}
 	if e != nil {
@@ -336,7 +359,7 @@ func TestHelperForErrorf(t *testing.T) {
 	}
 
 	s, e = HelperForErrorf("hello %w", origErr)
-	if actual, expected := string(s), `hello ‹universe›`; actual != expected {
+	if actual, expected := string(s), "hello ‹small›\n‹universe›"; actual != expected {
 		t.Errorf("expected %q, got %q", expected, actual)
 	}
 	if e != origErr {
