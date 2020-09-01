@@ -53,6 +53,30 @@ func Sprintf(format string, args ...interface{}) RedactableString {
 	return s
 }
 
+// HelperForErrorf is a helper to implement a redaction-aware
+// fmt.Errorf-compatible function in a different package. It formats
+// the string according to the given format and arguments in the same
+// way as Sprintf, but in addition to this if the format contains %w
+// and an error object in the proper argument position it also returns
+// that error object.
+//
+// Note: This function only works if an error redaction function
+// has been injected with RegisterRedactErrorFn().
+func HelperForErrorf(format string, args ...interface{}) (RedactableString, error) {
+	p := internalFmt.NewInternalPrinter()
+	internalFmt.SetCollectError(p)
+	internalFmt.SetHook(p, printArgFn)
+	internalFmt.DoPrintf(p, format, args)
+	redactLastWrites(p)
+	s := RedactableString(internalFmt.Buf(p))
+	e := internalFmt.WrappedError(p)
+	internalFmt.Free(p)
+	if m, ok := e.(*makeError); ok {
+		e = m.err
+	}
+	return s, e
+}
+
 // Sprintfn produces a RedactableString using the provided
 // SafeFormat-alike function.
 func Sprintfn(printer func(w SafePrinter)) RedactableString {

@@ -53,7 +53,7 @@ func printArgFn(p *internalFmt.InternalPrinter, arg interface{}, verb rune) (new
 		return len(internalFmt.Buf(p))
 	}
 
-	arg = annotateArg(arg)
+	arg = annotateArg(arg, internalFmt.CollectingError(p))
 	internalFmt.PrintArg(p, arg, verb)
 	return len(internalFmt.Buf(p))
 }
@@ -71,13 +71,21 @@ func redactLastWrites(p *internalFmt.InternalPrinter) {
 // an indirect formatter which ensures that redaction markers inside
 // the representation of the object are escaped, and optionally
 // encloses the result of the display between redaction markers.
-func annotateArg(arg interface{}) interface{} {
+//
+// collectingError is true iff we are in the context of
+// HelperForErrorf, where we want the %w verb to work properly. This
+// adds a little overhead to the processing, but this is OK because
+// typically the error path is not perf-critical.
+func annotateArg(arg interface{}, collectingError bool) interface{} {
+	var newArg fmt.Formatter
+	err, isError := arg.(error)
+
 	switch v := arg.(type) {
 	case SafeFormatter:
 		// calls to Format() by fmt.Print will be redirected to
 		// v.SafeFormat(). This delegates the task of adding markers to
 		// the object itself.
-		return &redactFormatRedirect{
+		newArg = &redactFormatRedirect{
 			func(p SafePrinter, verb rune) { v.SafeFormat(p, verb) },
 		}
 
@@ -88,28 +96,50 @@ func annotateArg(arg interface{}) interface{} {
 		// Note that we can't let the value be displayed as-is because
 		// we must prevent any marker inside the value from leaking into
 		// the result. (We want to avoid mismatched markers.)
-		return &escapeArg{arg: arg, enclose: false}
+		newArg = &escapeArg{arg: arg, enclose: false}
 
 	case SafeMessager:
 		// Obsolete interface.
 		// TODO(knz): Remove this.
-		return &escapeArg{arg: v.SafeMessage(), enclose: false}
+		newArg = &escapeArg{arg: v.SafeMessage(), enclose: false}
 
 	default:
-		if err, ok := v.(error); ok && redactErrorFn != nil {
+		if isError && redactErrorFn != nil {
 			// We place this case after the other cases above, in case
 			// the error object knows how to print itself safely already.
-			return &redactFormatRedirect{
+			newArg = &redactFormatRedirect{
 				func(p SafePrinter, verb rune) { redactErrorFn(err, p, verb) },
 			}
+		} else {
+			// calls to Format() by fmt.Print will be redirected to a
+			// display of v within redaction markers if the type is
+			// considered unsafe, without markers otherwise. In any case,
+			// occurrences of delimiters within are escaped.
+			newArg = &escapeArg{arg: v, enclose: !isSafeValue(v)}
 		}
-		// calls to Format() by fmt.Print will be redirected to a
-		// display of v within redaction markers if the type is
-		// considered unsafe, without markers otherwise. In any case,
-		// occurrences of delimiters within are escaped.
-		return &escapeArg{arg: v, enclose: !isSafeValue(v)}
 	}
+
+	if isError && collectingError {
+		// Ensure the arg still implements the `error` interface for
+		// detection by the handling of %w, while also implementing
+		// fmt.Formatter to forward the implementation to the objects
+		// constructed above.
+		newArg = &makeError{err: err, arg: newArg}
+	}
+
+	return newArg
 }
+
+type makeError struct {
+	err error
+	arg fmt.Formatter
+}
+
+// Error implements error.
+func (m *makeError) Error() string { return m.err.Error() }
+
+// Format implements fmt.Formatter.
+func (m *makeError) Format(f fmt.State, verb rune) { m.arg.Format(f, verb) }
 
 // redactFormatRedirect wraps a safe print callback and uses it to
 // implement fmt.Formatter.

@@ -72,3 +72,12 @@ func DoPrint(p *InternalPrinter, a []interface{}) { p.doPrint(a) }
 
 // DoPrintf exposes the doPrintf() method to the redact package.
 func DoPrintf(p *InternalPrinter, format string, a []interface{}) { p.doPrintf(format, a) }
+
+// SetCollectError enables wrapped error collection.
+func SetCollectError(p *InternalPrinter) { p.wrapErrs = true }
+
+// CollectingError exposes wrapped error collection.
+func CollectingError(p *InternalPrinter) bool { return p.wrapErrs }
+
+// WrappedError retrieves the wrapped error if found.
+func WrappedError(p *InternalPrinter) error { return p.wrappedErr }

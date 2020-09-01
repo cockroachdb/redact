@@ -16,6 +16,7 @@ package redact
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -321,6 +322,25 @@ func TestRedactStream(t *testing.T) {
 		if n != len(result) {
 			t.Errorf("%d: expected len %d, got %d", i, n, len(result))
 		}
+	}
+}
+
+func TestHelperForErrorf(t *testing.T) {
+	origErr := errors.New("universe")
+	s, e := HelperForErrorf("hello %s", origErr)
+	if actual, expected := string(s), `hello ‹universe›`; actual != expected {
+		t.Errorf("expected %q, got %q", expected, actual)
+	}
+	if e != nil {
+		t.Errorf("expected no error, got %v", e)
+	}
+
+	s, e = HelperForErrorf("hello %w", origErr)
+	if actual, expected := string(s), `hello ‹universe›`; actual != expected {
+		t.Errorf("expected %q, got %q", expected, actual)
+	}
+	if e != origErr {
+		t.Errorf("expected error %v, got %v (%T)", origErr, e, e)
 	}
 }
 
