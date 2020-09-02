@@ -38,6 +38,9 @@ func (b *StringBuilder) String() string { return b.RedactableString().StripMarke
 // RedactableString returns the accumulated string, including redaction markers.
 func (b *StringBuilder) RedactableString() RedactableString { return RedactableString(b.buf.String()) }
 
+// RedactableString returns the accumulated bytes, including redaction markers.
+func (b *StringBuilder) RedactableBytes() RedactableBytes { return RedactableBytes(b.buf.Bytes()) }
+
 // SafeFormat implements SafeFormatter.
 func (b *StringBuilder) SafeFormat(p SafePrinter, _ rune) {
 	// We only support the %v / %s natural print here.

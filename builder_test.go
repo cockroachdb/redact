@@ -74,6 +74,9 @@ S
 	if actualR != expectedR {
 		t.Errorf("expected:\n%s\n\ngot:\n%s", expectedR, actualR)
 	}
+	if actualB := b.RedactableBytes(); string(actualB) != expectedR {
+		t.Errorf("expected:\n%s\n\ngot:\n%s", expectedR, actualB)
+	}
 
 	if actualR2 := Sprint(&b); actualR2 != expectedR {
 		t.Errorf("expected:\n%s\n\ngot:\n%s", expectedR, actualR2)
