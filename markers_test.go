@@ -26,6 +26,8 @@ import (
 type p = SafePrinter
 
 func TestPrinter(t *testing.T) {
+	var sn *safeNil
+	var unsafeSptr *string
 	testData := []struct {
 		fn       func(p)
 		expected string
@@ -102,9 +104,15 @@ func TestPrinter(t *testing.T) {
 		{func(w p) { w.Print("ab ", Sprint(12, Safe(34))) }, "‹ab›‹12› 34"},
 		{func(w p) { w.Printf("ab %q", Sprint(12, Safe(34))) }, "ab ‹12› 34"},
 		{func(w p) { w.Printf("ab %d", Sprint(12, Safe(34))) }, "ab ‹12› 34"},
-		// Nil untyped objects get formatted as redactable unless marked safe.
-		{func(w p) { w.Printf("ab %v", nil) }, "ab ‹<nil>›"},
+		// Nil untyped or interface-typed objects get formatted as safe.
+		{func(w p) { w.Printf("ab %v", nil) }, "ab <nil>"},
+		{func(w p) { w.Printf("ab %v", error(nil)) }, "ab <nil>"},
 		{func(w p) { w.Printf("ab %v", Safe(nil)) }, "ab <nil>"},
+		// Nil typed objects are unsafe.
+		{func(w p) { w.Printf("ab %v", unsafeSptr) }, "ab ‹<nil>›"},
+		// But a nil pointer to a type that has a SafeFormat() method is fine.
+		{func(w p) { w.Printf("ab %v", sn) }, "ab hello ‹world›"},
+		{func(w p) { w.Printf("ab %v", (*safeNil)(nil)) }, "ab hello ‹world›"},
 		// Reflected values can be formatted too.
 		{func(w p) { w.Printf("ab %.1f", reflect.ValueOf(12.3456)) }, "ab ‹12.3›"},
 		{func(w p) { w.Printf("ab %.1f", Safe(reflect.ValueOf(12.3456))) }, "ab 12.3"},
@@ -461,4 +469,12 @@ func (ef *fmter) Format(s fmt.State, verb rune) {
 	var buf bytes.Buffer
 	buf.WriteString("hello\nworld")
 	_, _ = buf.WriteTo(s)
+}
+
+type safeNil struct {
+	unused int
+}
+
+func (s *safeNil) SafeFormat(p SafePrinter, _ rune) {
+	p.Printf("hello %v", "world")
 }

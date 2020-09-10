@@ -39,6 +39,15 @@ func printArgFn(p *internalFmt.InternalPrinter, arg interface{}, verb rune) (new
 		return len(internalFmt.Buf(p))
 	}
 
+	// nil arguments are printed as-is. Note: a nil argument under
+	// interface{} is not the same as a nil pointer passed via a pointer
+	// of a concrete type. The latter kind of nil goes through
+	// redaction as usual, because it may have its own custom Format() method.
+	if arg == nil {
+		internalFmt.PrintArg(p, arg, verb)
+		return len(internalFmt.Buf(p))
+	}
+
 	// RedactableBytes/RedactableString are already formatted as
 	// redactable. Include them as-is.
 	//
