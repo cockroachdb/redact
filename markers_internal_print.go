@@ -25,7 +25,8 @@ import (
 func printArgFn(p *internalFmt.InternalPrinter, arg interface{}, verb rune) (newState int) {
 	redactLastWrites(p)
 
-	if verb == 'T' {
+	switch verb {
+	case 'T':
 		// If the value was wrapped, reveal its original type. Anything else is not very useful.
 		switch v := arg.(type) {
 		case safeWrapper:
@@ -36,6 +37,32 @@ func printArgFn(p *internalFmt.InternalPrinter, arg interface{}, verb rune) (new
 
 		// Shortcut: %T is always safe to print as-is.
 		internalFmt.PrintArg(p, arg, verb)
+		return len(internalFmt.Buf(p))
+	case 'p':
+		// Printing a pointer via %p is handled as special case in printf,
+		// so we need a special case here too. The other cases of
+		// printing a pointer via %v / %d %x etc is handled by the common path.
+
+		switch v := arg.(type) {
+		case safeWrapper:
+			// If the value was meant to be safe, then print it as-is.
+			internalFmt.PrintArg(p, v.a, verb)
+			return len(internalFmt.Buf(p))
+
+		case unsafeWrap:
+			// If it's been wrapped, unwrap it. This helps preserve the
+			// original pointer value in the output.
+			arg = v.a
+		}
+		// Now perform an unsafe print: we are assuming that the pointer
+		// representation by the fmt.printf code does not contain
+		// redaction markers, and go a short route. If that assumption did
+		// not hold (or is invalidated by changes upstream after this
+		// comment is written), this code should be changed to use the
+		// escapeWriter instead.
+		internalFmt.Append(p, startRedactableBytes)
+		internalFmt.PrintArg(p, arg, verb)
+		internalFmt.Append(p, endRedactableBytes)
 		return len(internalFmt.Buf(p))
 	}
 

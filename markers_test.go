@@ -28,6 +28,11 @@ type p = SafePrinter
 func TestPrinter(t *testing.T) {
 	var sn *safeNil
 	var unsafeSptr *string
+	ptrptr := &unsafeSptr
+	ptrptrP := fmt.Sprintf("%p", ptrptr)
+	ptrptrD := fmt.Sprintf("%d", ptrptr)
+	ptrptrV := fmt.Sprintf("%v", ptrptr)
+
 	testData := []struct {
 		fn       func(p)
 		expected string
@@ -116,6 +121,16 @@ func TestPrinter(t *testing.T) {
 		// Reflected values can be formatted too.
 		{func(w p) { w.Printf("ab %.1f", reflect.ValueOf(12.3456)) }, "ab ‹12.3›"},
 		{func(w p) { w.Printf("ab %.1f", Safe(reflect.ValueOf(12.3456))) }, "ab 12.3"},
+		// Pointers.
+		{func(w p) { w.Printf("pv %v", ptrptr) }, "pv ‹" + ptrptrV + "›"},
+		{func(w p) { w.Printf("pd %d", ptrptr) }, "pd ‹" + ptrptrD + "›"},
+		{func(w p) { w.Printf("pp %p", ptrptr) }, "pp ‹" + ptrptrP + "›"},
+		{func(w p) { w.Printf("spv %v", Safe(ptrptr)) }, "spv " + ptrptrV},
+		{func(w p) { w.Printf("spd %d", Safe(ptrptr)) }, "spd " + ptrptrD},
+		{func(w p) { w.Printf("spp %p", Safe(ptrptr)) }, "spp " + ptrptrP},
+		{func(w p) { w.Printf("upv %v", Unsafe(ptrptr)) }, "upv ‹" + ptrptrV + "›"},
+		{func(w p) { w.Printf("upd %d", Unsafe(ptrptr)) }, "upd ‹" + ptrptrD + "›"},
+		{func(w p) { w.Printf("upp %p", Unsafe(ptrptr)) }, "upp ‹" + ptrptrP + "›"},
 
 		// Check for bad verbs.
 		{func(w p) { w.Printf("ab %d", true) }, "ab ‹%!d(bool=true)›"},
