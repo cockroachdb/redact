@@ -32,6 +32,8 @@ func TestPrinter(t *testing.T) {
 	ptrptrP := fmt.Sprintf("%p", ptrptr)
 	ptrptrD := fmt.Sprintf("%d", ptrptr)
 	ptrptrV := fmt.Sprintf("%v", ptrptr)
+	var buf StringBuilder
+	buf.Printf("safe %s", "unsafe")
 
 	testData := []struct {
 		fn       func(p)
@@ -157,6 +159,11 @@ func TestPrinter(t *testing.T) {
 		{func(w p) { w.Printf("%v", Safe(&complexObj{"somestring"})) }, "&{somestring}"},
 		{func(w p) { w.Printf("%+v", Safe(&complexObj{"somestring"})) }, "&{v:somestring}"},
 		{func(w p) { w.Printf("%#v", Safe(&complexObj{"somestring"})) }, `&redact.complexObj{v:"somestring"}`},
+		// String builders are also printable.
+		{func(w p) { w.Printf("%v", buf) }, "safe ‹unsafe›"},
+		{func(w p) { w.Print(buf) }, "safe ‹unsafe›"},
+		{func(w p) { w.Printf("%v", &buf) }, "safe ‹unsafe›"},
+		{func(w p) { w.Print(&buf) }, "safe ‹unsafe›"},
 	}
 
 	var methods = []struct {

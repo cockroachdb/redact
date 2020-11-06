@@ -16,6 +16,7 @@ package redact
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"unicode/utf8"
 )
@@ -33,16 +34,19 @@ type StringBuilder struct {
 
 // String returns the accumulated string, with redaction markers stripped out.
 // To obtain the redactable string, call RedactableString().
-func (b *StringBuilder) String() string { return b.RedactableString().StripMarkers() }
+func (b StringBuilder) String() string { return b.RedactableString().StripMarkers() }
+
+var _ fmt.Stringer = StringBuilder{}
+var _ fmt.Stringer = (*StringBuilder)(nil)
 
 // RedactableString returns the accumulated string, including redaction markers.
-func (b *StringBuilder) RedactableString() RedactableString { return RedactableString(b.buf.String()) }
+func (b StringBuilder) RedactableString() RedactableString { return RedactableString(b.buf.String()) }
 
-// RedactableString returns the accumulated bytes, including redaction markers.
-func (b *StringBuilder) RedactableBytes() RedactableBytes { return RedactableBytes(b.buf.Bytes()) }
+// RedactableBytes returns the accumulated bytes, including redaction markers.
+func (b StringBuilder) RedactableBytes() RedactableBytes { return RedactableBytes(b.buf.Bytes()) }
 
 // SafeFormat implements SafeFormatter.
-func (b *StringBuilder) SafeFormat(p SafePrinter, _ rune) {
+func (b StringBuilder) SafeFormat(p SafePrinter, _ rune) {
 	// We only support the %v / %s natural print here.
 	// Go supports other formatting verbs for strings: %x/%X/%q.
 	//
@@ -59,6 +63,9 @@ func (b *StringBuilder) SafeFormat(p SafePrinter, _ rune) {
 	//       markers too.
 	p.Print(b.RedactableString())
 }
+
+var _ SafeFormatter = StringBuilder{}
+var _ SafeFormatter = (*StringBuilder)(nil)
 
 // Len returns the number of accumulated bytes, including redaction
 // markers; b.Len() == len(b.RedactableString()).
