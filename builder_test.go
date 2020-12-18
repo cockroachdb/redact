@@ -51,7 +51,7 @@ func TestBuilder(t *testing.T) {
 	b.UnsafeByte('U')
 	b.SafeRune('\n')
 
-	b.UnsafeByte(startRedactableBytes[0])
+	b.UnsafeByte(startRedactableS[0])
 	b.SafeRune('\n')
 
 	b.UnsafeBytes([]byte("UUU"))

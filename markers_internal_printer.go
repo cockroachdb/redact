@@ -72,7 +72,7 @@ func (b *printer) UnsafeRune(s rune) {
 func (b *printer) UnsafeByte(s byte) {
 	_, _ = b.buf.WriteRune(startRedactable)
 	if s >= utf8.RuneSelf ||
-		s == startRedactableBytes[0] || s == endRedactableBytes[0] {
+		s == startRedactableS[0] || s == endRedactableS[0] {
 		// Unsafe byte. Escape it.
 		_, _ = b.buf.Write(escapeBytes)
 	} else {

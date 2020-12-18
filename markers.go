@@ -94,13 +94,13 @@ func EscapeBytes(s []byte) RedactableBytes {
 }
 
 // StartMarker returns the start delimiter for an unsafe string.
-func StartMarker() []byte { return startRedactableBytes }
+func StartMarker() []byte { return []byte(startRedactableS) }
 
 // EndMarker returns the end delimiter for an unsafe string.
-func EndMarker() []byte { return endRedactableBytes }
+func EndMarker() []byte { return []byte(endRedactableS) }
 
 // RedactedMarker returns the special string used by Redact.
-func RedactedMarker() []byte { return redactedBytes }
+func RedactedMarker() []byte { return []byte(redactedS) }
 
 // EscapeMarkers escapes the special delimiters from the provided
 // byte slice.
