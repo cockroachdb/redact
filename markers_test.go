@@ -340,6 +340,16 @@ func TestRedactStream(t *testing.T) {
 		{"%v", &panicObj1{"p1-x‹y›z"}, `‹%!v(PANIC=String method: p1-x?y?z)›`},
 		{"%v", &panicObj2{"p2-x‹y›z"}, `‹%!v(PANIC=Format method: p2-x?y?z)›`},
 		{"%v", &panicObj3{"p3-x‹y›z"}, `%!v(PANIC=SafeFormatter method: p3-x?y?z)`},
+		{"%v", &panicObj4{"unused"}, `%!v(PANIC=SafeMessager)`},
+		{"%v", (*safestringer)(nil), `<nil>`},
+		{"%v", (*safemsg)(nil), `<nil>`},
+		{"%v", (*safefmtformatter)(nil), `%!v(PANIC=Format method: runtime error: invalid memory address or nil pointer dereference)`},
+		{"%v", (*safepanicObj1)(nil), `<nil>`},
+		{"%v", (*safepanicObj2)(nil), `%!v(PANIC=Format method: runtime error: invalid memory address or nil pointer dereference)`},
+		{"%v", (*panicObj1)(nil), `‹<nil>›`},
+		{"%v", (*panicObj2)(nil), `‹%!v(PANIC=Format method: runtime error: invalid memory address or nil pointer dereference)›`},
+		{"%v", (*panicObj3)(nil), `%!v(PANIC=SafeFormatter method: runtime error: invalid memory address or nil pointer dereference)`},
+		{"%v", (*panicObj4)(nil), `<nil>`},
 	}
 
 	for i, tc := range testData {
@@ -466,6 +476,12 @@ func (p *panicObj3) SafeFormat(SafePrinter, rune) { panic(p.s) }
 type safemsg struct {
 	s string
 }
+
+type panicObj4 struct{ unused string }
+
+var _ SafeMessager = (*panicObj4)(nil)
+
+func (p *panicObj4) SafeMessage() string { panic("woo") }
 
 var _ SafeMessager = (*safemsg)(nil)
 

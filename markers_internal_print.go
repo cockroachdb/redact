@@ -16,6 +16,7 @@ package redact
 
 import (
 	"fmt"
+	"reflect"
 
 	internalFmt "github.com/cockroachdb/redact/internal"
 )
@@ -112,7 +113,7 @@ func redactLastWrites(p *internalFmt.InternalPrinter) {
 // HelperForErrorf, where we want the %w verb to work properly. This
 // adds a little overhead to the processing, but this is OK because
 // typically the error path is not perf-critical.
-func annotateArg(arg interface{}, collectingError bool) interface{} {
+func annotateArg(arg interface{}, collectingError bool) (res interface{}) {
 	var newArg fmt.Formatter
 	err, isError := arg.(error)
 
@@ -135,6 +136,21 @@ func annotateArg(arg interface{}, collectingError bool) interface{} {
 		newArg = &escapeArg{arg: arg, enclose: false}
 
 	case SafeMessager:
+		defer func() {
+			// Observed in the wild: an object implements SafeMessager
+			// by value, and a nil pointer to that object is passed
+			// to the redact package. Try do so something meaningful.
+			// We don't try too hard though, as this interface
+			// is obsolete anyway.
+			if err := recover(); err != nil {
+				if p := reflect.ValueOf(v); p.Kind() == reflect.Ptr && p.IsNil() {
+					res = "<nil>"
+				} else {
+					res = "%!v(PANIC=SafeMessager)"
+				}
+			}
+		}()
+
 		// Obsolete interface.
 		// TODO(knz): Remove this.
 		newArg = &escapeArg{arg: v.SafeMessage(), enclose: false}
