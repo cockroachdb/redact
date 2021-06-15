@@ -54,12 +54,12 @@ type State interface {
 	Flag(c int) bool
 }
 
-// Formatter is the interface implemented by values with a custom formatter.
-// The implementation of Format may call Sprint(f) or Fprint(f) etc.
-// to generate its output.
+// Formatter is implemented by any value that has a Format method.
+// The implementation controls how State and rune are interpreted,
+// and may call Sprint(f) or Fprint(f) etc. to generate its output.
 type Formatter interface {
 	// CUSTOM: refer to the original type, not the one defined here.
-	Format(f origFmt.State, c rune)
+	Format(f origFmt.State, verb rune)
 }
 
 // Stringer is implemented by any value that has a String method,
@@ -400,11 +400,7 @@ func (p *pp) fmtInteger(v uint64, isSigned bool, verb rune) {
 	case 'c':
 		p.fmt.fmtC(v)
 	case 'q':
-		if v <= utf8.MaxRune {
-			p.fmt.fmtQc(v)
-		} else {
-			p.badVerb(verb)
-		}
+		p.fmt.fmtQc(v)
 	case 'U':
 		p.fmt.fmtUnicode(v)
 	default:
