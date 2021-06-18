@@ -1,4 +1,4 @@
-// Copyright 2020 The Cockroach Authors.
+// Copyright 2021 The Cockroach Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,20 +12,8 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 
+// Package redact is a helper internal package that provides the
+// Unsafe and Safe value wrappers. Its name is 'redact' even though a
+// better name would be 'wrappers' so as to ensure that the type name
+// of generated values contains the 'redact.' prefix.
 package redact
-
-import "reflect"
-
-// RegisterSafeType registers a data type to always be considered safe
-// during the production of redactable strings.
-func RegisterSafeType(t reflect.Type) {
-	safeTypeRegistry[t] = true
-}
-
-// safeTypeRegistry registers Go data types that are to be always
-// considered safe, even when they don't implement SafeValue.
-var safeTypeRegistry = map[reflect.Type]bool{}
-
-func isSafeValue(a interface{}) bool {
-	return safeTypeRegistry[reflect.TypeOf(a)]
-}

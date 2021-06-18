@@ -5,11 +5,8 @@
 #
 set -euxo pipefail
 
-(
-    echo "// Code generated from the Go standard library. DO NOT EDIT"
-    echo "// GENERATED FILE DO NOT EDIT"
-    cat $GOROOT/src/fmt/format.go
-) >format.go
+cp $GOROOT/src/fmt/format.go format.go
+patch -p0 <format.go.diff
 
 cp $GOROOT/src/fmt/print.go print.go
 patch -p0 <print.go.diff

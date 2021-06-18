@@ -12,9 +12,9 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 
-package redact
+package markers
 
-import "bytes"
+import i "github.com/cockroachdb/redact/interfaces"
 
 // RedactableString is a string that contains a mix of safe and unsafe
 // bits of data, but where it is known that unsafe bits are enclosed
@@ -30,13 +30,13 @@ type RedactableString string
 // RedactableString. This returns an unsafe string where all safe and
 // unsafe bits are mixed together.
 func (s RedactableString) StripMarkers() string {
-	return reStripMarkers.ReplaceAllString(string(s), "")
+	return ReStripMarkers.ReplaceAllString(string(s), "")
 }
 
 // Redact replaces all occurrences of unsafe substrings by the
 // “Redacted” marker, ‹×›. The result string is still safe.
 func (s RedactableString) Redact() RedactableString {
-	return RedactableString(reStripSensitive.ReplaceAllString(string(s), redactedS))
+	return RedactableString(ReStripSensitive.ReplaceAllString(string(s), RedactedS))
 }
 
 // ToBytes converts the string to a byte slice.
@@ -45,7 +45,7 @@ func (s RedactableString) ToBytes() RedactableBytes {
 }
 
 // SafeFormat formats the redactable safely.
-func (s RedactableString) SafeFormat(sp SafePrinter, _ rune) {
+func (s RedactableString) SafeFormat(sp i.SafePrinter, _ rune) {
 	// As per annotateArgs() in markers_internal_print.go,
 	// we consider the redactable string not further formattable.
 	sp.Print(s)
@@ -62,13 +62,13 @@ type RedactableBytes []byte
 // RedactableBytes. This returns an unsafe string where all safe and
 // unsafe bits are mixed together.
 func (s RedactableBytes) StripMarkers() []byte {
-	return reStripMarkers.ReplaceAll([]byte(s), nil)
+	return ReStripMarkers.ReplaceAll([]byte(s), nil)
 }
 
 // Redact replaces all occurrences of unsafe substrings by the
 // “Redacted” marker, ‹×›.
 func (s RedactableBytes) Redact() RedactableBytes {
-	return RedactableBytes(reStripSensitive.ReplaceAll(s, redactedBytes))
+	return RedactableBytes(ReStripSensitive.ReplaceAll(s, RedactedBytes))
 }
 
 // ToString converts the byte slice to a string.
@@ -77,33 +77,23 @@ func (s RedactableBytes) ToString() RedactableString {
 }
 
 // SafeFormat formats the redactable safely.
-func (s RedactableBytes) SafeFormat(sp SafePrinter, _ rune) {
+func (s RedactableBytes) SafeFormat(sp i.SafePrinter, _ rune) {
 	// As per annotateArgs() in markers_internal_print.go,
 	// we consider the redactable bytes not further formattable.
 	sp.Print(s)
 }
 
-// EscapeBytes escapes markers inside the given byte slice and encloses
-// the entire byte slice between redaction markers.
-func EscapeBytes(s []byte) RedactableBytes {
-	var buf bytes.Buffer
-	buf.Grow(len(s) + len(startRedactableS) + len(endRedactableS))
-	e := escapeWriter{w: &buf, enclose: true, strip: false}
-	_, _ = e.Write(s)
-	return RedactableBytes(buf.Bytes())
-}
-
 // StartMarker returns the start delimiter for an unsafe string.
-func StartMarker() []byte { return []byte(startRedactableS) }
+func StartMarker() []byte { return []byte(StartS) }
 
 // EndMarker returns the end delimiter for an unsafe string.
-func EndMarker() []byte { return []byte(endRedactableS) }
+func EndMarker() []byte { return []byte(EndS) }
 
 // RedactedMarker returns the special string used by Redact.
-func RedactedMarker() []byte { return []byte(redactedS) }
+func RedactedMarker() []byte { return []byte(RedactedS) }
 
 // EscapeMarkers escapes the special delimiters from the provided
 // byte slice.
 func EscapeMarkers(s []byte) []byte {
-	return reStripMarkers.ReplaceAll(s, escapeBytes)
+	return ReStripMarkers.ReplaceAll(s, EscapeMarkBytes)
 }

@@ -24,15 +24,6 @@ Overall, the original Go code is structured as follows:
   characters from the format string, as well as certain *constant*
   error strings (e.g. `%(BADPREC)`).
 
-At this point **we make the following assumption**: there is no data
-from the printed *arguments* that is emitted to `pp.buf` directly by a
-`doPrint()` method. This is true of the implementation as of Go 1.14.
-
-From this point, this package contains a *custom patch* onto the
-default implementation: the calls to `p.printArg` performed by the
-`doPrint()` methods are redirected to a function callback that is
-injected by the `redact` package.
-
 Refreshing the sources
 ======================
 

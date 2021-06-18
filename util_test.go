@@ -17,6 +17,8 @@ package redact
 import (
 	"reflect"
 	"testing"
+
+	"github.com/cockroachdb/redact/builder"
 )
 
 func TestSort(t *testing.T) {
@@ -49,7 +51,7 @@ func TestJoinTo(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		var b StringBuilder
+		var b builder.StringBuilder
 		JoinTo(&b, ", ", tc.v)
 		act := b.RedactableString()
 		if act != tc.exp {
