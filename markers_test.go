@@ -46,6 +46,7 @@ func TestPrinter(t *testing.T) {
 	}{
 		{func(w p) { w.SafeString("ab") }, `ab`},
 		{func(w p) { w.SafeRune('☃') }, `☃`},
+		{func(w p) { w.SafeRune(' ') }, ` `},
 		{func(w p) { w.SafeInt(-123) }, `-123`},
 		{func(w p) { w.SafeUint(123) }, `123`},
 		{func(w p) { w.SafeFloat(3.14) }, `3.14`},
@@ -495,6 +496,33 @@ func TestEscapeBytes(t *testing.T) {
 		}
 	}
 }
+
+func TestPrinterSpaceOmission(t *testing.T) {
+	// This test catches a regression introduced in v1.1.0.
+	vals := []safeInt{1, 2, 3, 4, 5}
+	s := Sprintfn(func(w SafePrinter) {
+		t.Logf("printer type %T", w)
+		for i, v := range vals {
+			if i > 0 {
+				w.SafeRune(' ')
+			}
+			if v%2 == 0 {
+				w.SafeRune('e')
+			} else {
+				w.SafeRune('o')
+			}
+			w.Print(v)
+		}
+	})
+	const expected = `o1 e2 o3 e4 o5`
+	if s != expected {
+		t.Errorf("expected %q, got %q", expected, s)
+	}
+}
+
+type safeInt int
+
+func (safeInt) SafeValue() {}
 
 func TestHelperForErrorf(t *testing.T) {
 	origErr := errors.New("small\nuniverse")

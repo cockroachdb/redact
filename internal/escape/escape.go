@@ -39,7 +39,7 @@ func InternalEscapeBytes(b []byte, startLoc int, breakNewLines, strip bool) (res
 	// Trim final newlines/spaces, for convenience.
 	if strip {
 		end := len(b)
-		for i := end - 1; i >= 0; i-- {
+		for i := end - 1; i >= startLoc; i-- {
 			if b[i] == '\n' || b[i] == ' ' {
 				end = i
 			} else {

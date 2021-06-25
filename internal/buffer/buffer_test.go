@@ -736,3 +736,20 @@ func Example_mixed_writes() {
 	// fn5+fn5: "safe‹unsafe›safe?unsafe?"
 
 }
+
+// This test checks that moving mode from SafeEscaped to UnsafeEscaped
+// does not erase safe spaces written previously.
+func TestBufferPreserveSafeSpacesWhenSwitchingToUnsafe(t *testing.T) {
+	var b Buffer
+
+	b.SetMode(SafeEscaped)
+	b.WriteRune('o')
+	b.WriteRune('1')
+	b.WriteRune(' ')
+	t.Logf("%+v", b)
+	b.SetMode(UnsafeEscaped)
+	t.Logf("%+v", b)
+	if expected, actual := m.RedactableString(`o1 `), b.RedactableString(); expected != actual {
+		t.Errorf("expected %q, got %q", expected, actual)
+	}
+}
