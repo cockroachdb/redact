@@ -16,6 +16,7 @@ package redact
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/cockroachdb/redact/builder"
 	i "github.com/cockroachdb/redact/interfaces"
@@ -166,3 +167,9 @@ func MakeFormat(s fmt.State, verb rune) (justV bool, format string) {
 // To distinguish safe and unsafe bits, it also implements the SafeWriter
 // interface.
 type StringBuilder = builder.StringBuilder
+
+// RegisterSafeType registers a data type to always be considered safe
+// during the production of redactable strings.
+func RegisterSafeType(t reflect.Type) {
+	ifmt.RegisterSafeType(t)
+}
