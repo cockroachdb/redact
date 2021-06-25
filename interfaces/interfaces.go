@@ -53,6 +53,15 @@ type SafeWriter interface {
 	// SafeString emits a safe string.
 	SafeString(SafeString)
 
+	// SafeInt emits a safe integer.
+	SafeInt(SafeInt)
+
+	// SafeUint emits a safe unsigned integer.
+	SafeUint(SafeUint)
+
+	// SafeFloat emits a safe floating-point value.
+	SafeFloat(SafeFloat)
+
 	// SafeRune emits a safe rune.
 	SafeRune(SafeRune)
 
@@ -80,15 +89,29 @@ type SafeWriter interface {
 	UnsafeRune(rune)
 }
 
-// SafeString aliases string. This is not meant to be used directly;
-// the type definition ensures that SafePrinter's SafeString method
-// can only take constant string literals as arguments. Typically, a
-// Go linter would ensure that ConstantString is never used to cast a
-// value.
+// SafeString represents a string that is not a sensitive value.
 type SafeString string
 
 // SafeValue makes SafeString a SafeValue.
 func (SafeString) SafeValue() {}
+
+// SafeInt represents an integer that is not a sensitive value.
+type SafeInt int64
+
+// SafeValue makes SafeInt a SafeValue.
+func (SafeInt) SafeValue() {}
+
+// SafeUint represents an integer that is not a sensitive value.
+type SafeUint uint64
+
+// SafeValue makes SafeUint a SafeValue.
+func (SafeUint) SafeValue() {}
+
+// SafeFloat represents a floating-point value that is not a sensitive value.
+type SafeFloat float64
+
+// SafeValue makes SafeFloat a SafeValue.
+func (SafeFloat) SafeValue() {}
 
 // SafeRune aliases rune. See the explanation for SafeString.
 type SafeRune rune

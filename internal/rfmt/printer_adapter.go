@@ -22,6 +22,24 @@ func (p *pp) SafeString(s i.SafeString) {
 	p.buf.WriteString(string(s))
 }
 
+// SafeInt implements SafePrinter.
+func (p *pp) SafeInt(s i.SafeInt) {
+	defer p.startSafeOverride().restore()
+	p.fmtInteger(uint64(s), signed, 'd')
+}
+
+// SafeUint implements SafePrinter.
+func (p *pp) SafeUint(s i.SafeUint) {
+	defer p.startSafeOverride().restore()
+	p.fmtInteger(uint64(s), unsigned, 'd')
+}
+
+// SafeFloat implements SafePrinter.
+func (p *pp) SafeFloat(s i.SafeFloat) {
+	defer p.startSafeOverride().restore()
+	p.fmtFloat(float64(s), 64, 'v')
+}
+
 // SafeRune implements SafePrinter.
 func (p *pp) SafeRune(r i.SafeRune) {
 	defer p.startSafeOverride().restore()

@@ -69,12 +69,17 @@ type SafePrinter = i.SafePrinter
 // SafeFormatter, to format mixes of safe and unsafe strings.
 type SafeWriter = i.SafeWriter
 
-// SafeString aliases string. This is not meant to be used directly;
-// the type definition ensures that SafePrinter's SafeString method
-// can only take constant string literals as arguments. Typically, a
-// Go linter would ensure that ConstantString is never used to cast a
-// value.
+// SafeString represents a string that is not a sensitive value.
 type SafeString = i.SafeString
+
+// SafeInt represents an integer that is not a sensitive value.
+type SafeInt = i.SafeInt
+
+// SafeUint represents an integer that is not a sensitive value.
+type SafeUint = i.SafeUint
+
+// SafeFloat represents a floating-point value that is not a sensitive value.
+type SafeFloat = i.SafeFloat
 
 // SafeRune aliases rune. See the explanation for SafeString.
 type SafeRune = i.SafeRune

@@ -87,6 +87,24 @@ func (b *StringBuilder) SafeString(s i.SafeString) {
 	_, _ = b.Buffer.WriteString(string(s))
 }
 
+// SafeInt is part of the SafeWriter interface.
+func (b *StringBuilder) SafeInt(s i.SafeInt) {
+	b.SetMode(ib.SafeEscaped)
+	_, _ = ifmt.Fprintf(&b.Buffer, "%d", s)
+}
+
+// SafeUint is part of the SafeWriter interface.
+func (b *StringBuilder) SafeUint(s i.SafeUint) {
+	b.SetMode(ib.SafeEscaped)
+	_, _ = ifmt.Fprintf(&b.Buffer, "%d", s)
+}
+
+// SafeFloat is part of the SafeWriter interface.
+func (b *StringBuilder) SafeFloat(s i.SafeFloat) {
+	b.SetMode(ib.SafeEscaped)
+	_, _ = ifmt.Fprintf(&b.Buffer, "%v", s)
+}
+
 // SafeRune is part of the SafeWriter interface.
 func (b *StringBuilder) SafeRune(s i.SafeRune) {
 	b.SetMode(ib.SafeEscaped)
