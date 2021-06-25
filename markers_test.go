@@ -46,6 +46,9 @@ func TestPrinter(t *testing.T) {
 	}{
 		{func(w p) { w.SafeString("ab") }, `ab`},
 		{func(w p) { w.SafeRune('☃') }, `☃`},
+		{func(w p) { w.SafeInt(-123) }, `-123`},
+		{func(w p) { w.SafeUint(123) }, `123`},
+		{func(w p) { w.SafeFloat(3.14) }, `3.14`},
 		{func(w p) { w.UnsafeString("rs") }, `‹rs›`},
 		{func(w p) { w.UnsafeByte('t') }, `‹t›`},
 		{func(w p) { w.UnsafeByte(m.StartS[0]) }, `‹?›`},
@@ -61,6 +64,11 @@ func TestPrinter(t *testing.T) {
 		{func(w p) { w.Print("ar", []int{123, 456}) }, `‹ar›[‹123› ‹456›]`},
 		{func(w p) { w.Print("ar", []byte{55, 56}) }, `‹ar›[‹55› ‹56›]`},
 		{func(w p) { w.Print("ar", Safe([]byte{55, 56})) }, `‹ar›[55 56]`},
+
+		// Numeric values.
+		{func(w p) { w.Printf("vn %+d", SafeInt(123)) }, `vn +123`},
+		{func(w p) { w.Printf("vn %05d", SafeUint(123)) }, `vn 00123`},
+		{func(w p) { w.Printf("vn %e", SafeFloat(3.14)) }, `vn 3.140000e+00`},
 
 		// Pre-redactable strings.
 		{func(w p) { w.Print("pr", RedactableString("hi")) }, `‹pr›hi`},
@@ -125,6 +133,9 @@ func TestPrinter(t *testing.T) {
 		{func(w p) { w.Print(Unsafe(RedactableString("ab‹c›"))) }, "‹ab?c?›"},
 		{func(w p) { w.Print(Unsafe(RedactableBytes("ab‹c›"))) }, "‹ab?c?›"},
 		{func(w p) { w.Print(Unsafe(SafeRune('a'))) }, "‹97›"},
+		{func(w p) { w.Print(Unsafe(SafeInt(-123))) }, "‹-123›"},
+		{func(w p) { w.Print(Unsafe(SafeUint(123))) }, "‹123›"},
+		{func(w p) { w.Print(Unsafe(SafeFloat(3.14))) }, "‹3.14›"},
 		{func(w p) { w.Print(Unsafe(Sprint("abc"))) }, "‹?abc?›"},
 		{func(w p) { w.Print(Unsafe(Safe("abc"))) }, "‹abc›"},
 		{func(w p) { w.Printf("%v", Unsafe(SafeString("abc"))) }, "‹abc›"},

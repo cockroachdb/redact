@@ -43,6 +43,10 @@ func TestBuilder(t *testing.T) {
 
 	b.SafeString("safe\n")
 
+	b.SafeInt(123)
+	b.SafeUint(456)
+	b.SafeFloat(3.14)
+
 	b.SafeRune('S')
 	b.SafeRune('\n')
 
@@ -70,7 +74,7 @@ safe
 safe
 hello safe ‹unsafe›
 safe
-S
+1234563.14S
 ‹unsafe›
 ‹unsafe` + "\342" + `?›
 ‹U›
@@ -96,7 +100,7 @@ safe
 safe
 hello safe unsafe
 safe
-S
+1234563.14S
 unsafe
 unsafe` + "\342" + `?
 U
