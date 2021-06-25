@@ -19,8 +19,13 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/cockroachdb/redact/builder"
+	i "github.com/cockroachdb/redact/interfaces"
+	m "github.com/cockroachdb/redact/internal/markers"
 )
 
 type p = SafePrinter
@@ -32,7 +37,7 @@ func TestPrinter(t *testing.T) {
 	ptrptrP := fmt.Sprintf("%p", ptrptr)
 	ptrptrD := fmt.Sprintf("%d", ptrptr)
 	ptrptrV := fmt.Sprintf("%v", ptrptr)
-	var buf StringBuilder
+	var buf builder.StringBuilder
 	buf.Printf("safe %s", "unsafe")
 
 	testData := []struct {
@@ -43,11 +48,26 @@ func TestPrinter(t *testing.T) {
 		{func(w p) { w.SafeRune('☃') }, `☃`},
 		{func(w p) { w.UnsafeString("rs") }, `‹rs›`},
 		{func(w p) { w.UnsafeByte('t') }, `‹t›`},
-		{func(w p) { w.UnsafeByte(startRedactableS[0]) }, `‹?›`},
+		{func(w p) { w.UnsafeByte(m.StartS[0]) }, `‹?›`},
 		{func(w p) { w.UnsafeBytes([]byte("uv")) }, `‹uv›`},
 		{func(w p) { w.UnsafeRune('🛑') }, `‹🛑›`},
 		{func(w p) { w.Print("fg", safe("hi")) }, `‹fg›hi`},
+		{func(w p) { w.Print("fg", reflect.ValueOf(safe("hi"))) }, `‹fg›hi`},
 		{func(w p) { w.Printf("jk %s %s", "lm", safe("no")) }, `jk ‹lm› no`},
+		{func(w p) { w.Printf("jk %s %s", "lm", reflect.ValueOf(safe("no"))) }, `jk ‹lm› no`},
+		{func(w p) { w.Print("ar", []string{"hel", "lo"}) }, `‹ar›[‹hel› ‹lo›]`},
+		{func(w p) { w.Print("ar", []i.SafeValue{safe("hel"), safe("lo")}) }, `‹ar›[hel lo]`},
+		{func(w p) { w.Print("ar", []interface{}{safe("hel"), safe("lo")}) }, `‹ar›[hel lo]`},
+		{func(w p) { w.Print("ar", []int{123, 456}) }, `‹ar›[‹123› ‹456›]`},
+		{func(w p) { w.Print("ar", []byte{55, 56}) }, `‹ar›[‹55› ‹56›]`},
+		{func(w p) { w.Print("ar", Safe([]byte{55, 56})) }, `‹ar›[55 56]`},
+
+		// Pre-redactable strings.
+		{func(w p) { w.Print("pr", RedactableString("hi")) }, `‹pr›hi`},
+		{func(w p) { w.Print("pr", RedactableBytes("hi")) }, `‹pr›hi`},
+		{func(w p) { w.Print("prr", reflect.ValueOf(RedactableString("hi"))) }, `‹prr›hi`},
+		{func(w p) { w.Print("prr", reflect.ValueOf(RedactableBytes("hi"))) }, `‹prr›hi`},
+
 		// The special string verbs are honored for plain strings.
 		{func(w p) { w.Printf("fg %q", safe("hi")) }, `fg "hi"`},
 		{func(w p) { w.Printf("fg %#q", safe("hi")) }, "fg `hi`"},
@@ -71,6 +91,10 @@ func TestPrinter(t *testing.T) {
 		{func(w p) { w.Printf("fg %#q", RedactableString("hi")) }, "fg hi"},
 		{func(w p) { w.Printf("fg %x", RedactableString("hi")) }, `fg hi`},
 		{func(w p) { w.Printf("fg %X", RedactableString("hi")) }, "fg hi"},
+		{func(w p) { w.Printf("fg %q", RedactableBytes("hi")) }, `fg hi`},
+		{func(w p) { w.Printf("fg %#q", RedactableBytes("hi")) }, "fg hi"},
+		{func(w p) { w.Printf("fg %x", RedactableBytes("hi")) }, `fg hi`},
+		{func(w p) { w.Printf("fg %X", RedactableBytes("hi")) }, "fg hi"},
 		// Direct access to the fmt.State.
 		{func(w p) { _, _ = w.Write([]byte("pq")) }, `‹pq›`},
 		// Safe strings and runes containing the delimiters get escaped.
@@ -90,14 +114,16 @@ func TestPrinter(t *testing.T) {
 		// Spaces as runes get preserved.
 		{func(w p) { w.SafeRune(' ') }, ` `},
 		{func(w p) { w.SafeRune('\n') }, "\n"},
-		{func(w p) { w.UnsafeRune(' ') }, `‹ ›`},
-		{func(w p) { w.UnsafeRune('\n') }, "‹\n›"},
+		{func(w p) { w.UnsafeRune(' ') }, `‹›`},
+		{func(w p) { w.UnsafeRune('\n') }, "‹›"},
 		// The Safe() API turns anything into something safe. However, the contents
 		// still get escaped as needed.
 		{func(w p) { w.Print("ab ", Safe("c‹d›e ")) }, "‹ab›c?d?e "},
 		{func(w p) { w.Printf("ab %03d ", Safe(12)) }, "ab 012 "},
 		// Something that'd be otherwise safe, becomes unsafe with Unsafe().
 		{func(w p) { w.Print(Unsafe(SafeString("abc"))) }, "‹abc›"},
+		{func(w p) { w.Print(Unsafe(RedactableString("ab‹c›"))) }, "‹ab?c?›"},
+		{func(w p) { w.Print(Unsafe(RedactableBytes("ab‹c›"))) }, "‹ab?c?›"},
 		{func(w p) { w.Print(Unsafe(SafeRune('a'))) }, "‹97›"},
 		{func(w p) { w.Print(Unsafe(Sprint("abc"))) }, "‹?abc?›"},
 		{func(w p) { w.Print(Unsafe(Safe("abc"))) }, "‹abc›"},
@@ -135,7 +161,7 @@ func TestPrinter(t *testing.T) {
 		{func(w p) { w.Printf("upp %p", Unsafe(ptrptr)) }, "upp ‹" + ptrptrP + "›"},
 
 		// Check for bad verbs.
-		{func(w p) { w.Printf("ab %d", true) }, "ab ‹%!d(bool=true)›"},
+		{func(w p) { w.Printf("ab %d", true) }, "ab %!d(bool=‹true›)"},
 		{func(w p) { w.Printf("ab %d", Safe(true)) }, "ab %!d(bool=true)"},
 		{func(w p) { w.Printf("ab %d") }, "ab %!d(MISSING)"},
 		{func(w p) { w.Printf("ab %[2]d", 123) }, "ab %!d(BADINDEX)"},
@@ -147,18 +173,20 @@ func TestPrinter(t *testing.T) {
 		// considered safe.
 		{func(w p) { w.Printf("ab %T", 123) }, "ab int"},
 		{func(w p) { w.Printf("ab %T", Safe(123)) }, "ab int"},
-		{func(w p) { w.Printf("ab %T", Unsafe(123)) }, "ab int"},
+		{func(w p) { w.Printf("ab %T", Unsafe(123)) }, "ab ‹int›"},
 
-		// A struct does not get recursively redacted, for now.
-		{func(w p) { w.Print(&complexObj{"somestring"}) }, "‹&{somestring}›"},
-		{func(w p) { w.Printf("%v", &complexObj{"somestring"}) }, "‹&{somestring}›"},
-		{func(w p) { w.Printf("%+v", &complexObj{"somestring"}) }, "‹&{v:somestring}›"},
-		{func(w p) { w.Printf("%#v", &complexObj{"somestring"}) }, `‹&redact.complexObj{v:"somestring"}›`},
-		// However it can be marked safe.
-		{func(w p) { w.Print(Safe(&complexObj{"somestring"})) }, "&{somestring}"},
-		{func(w p) { w.Printf("%v", Safe(&complexObj{"somestring"})) }, "&{somestring}"},
-		{func(w p) { w.Printf("%+v", Safe(&complexObj{"somestring"})) }, "&{v:somestring}"},
-		{func(w p) { w.Printf("%#v", Safe(&complexObj{"somestring"})) }, `&redact.complexObj{v:"somestring"}`},
+		// A struct does get recursively redacted.
+		{func(w p) { w.Print(SafeString("c1"), &complexObj{"somestring"}) }, "c1&{‹somestring›}"},
+		{func(w p) { w.Printf("c2 %v", &complexObj{"somestring"}) }, "c2 &{‹somestring›}"},
+		{func(w p) { w.Printf("c3 %+v", &complexObj{"somestring"}) }, "c3 &{v:‹somestring›}"},
+		{func(w p) { w.Printf("c4 %#v", &complexObj{"somestring"}) }, `c4 &redact.complexObj{v:‹"somestring"›}`},
+		{func(w p) { w.Printf("c5 %v", reflect.ValueOf(&complexObj{"somestring"})) }, "c5 &{‹somestring›}"},
+		// It can also be marked safe.
+		{func(w p) { w.Print(SafeString("c6"), Safe(&complexObj{"somestring"})) }, "c6&{somestring}"},
+		{func(w p) { w.Printf("c7 %v", Safe(&complexObj{"somestring"})) }, "c7 &{somestring}"},
+		{func(w p) { w.Printf("c8 %+v", Safe(&complexObj{"somestring"})) }, "c8 &{v:somestring}"},
+		{func(w p) { w.Printf("c9 %#v", Safe(&complexObj{"somestring"})) }, `c9 &redact.complexObj{v:"somestring"}`},
+		{func(w p) { w.Printf("c10 %v", Safe(reflect.ValueOf(&complexObj{"somestring"}))) }, `c10 &{somestring}`},
 		// String builders are also printable.
 		{func(w p) { w.Printf("%v", buf) }, "safe ‹unsafe›"},
 		{func(w p) { w.Print(buf) }, "safe ‹unsafe›"},
@@ -179,57 +207,17 @@ func TestPrinter(t *testing.T) {
 	for _, m := range methods {
 		t.Run(m.name, func(t *testing.T) {
 			for i, tc := range testData {
-				res := m.fn(compose{fn: tc.fn})
+				t.Run(fmt.Sprintf("%d:%q", i, tc.expected), func(t *testing.T) {
+					res := m.fn(compose{fn: tc.fn})
 
-				if res != tc.expected {
-					t.Errorf("%d: expected:\n  %s\n\ngot:\n%s", i,
-						strings.ReplaceAll(tc.expected, "\n", "\n  "),
-						strings.ReplaceAll(res, "\n", "\n  "))
-				}
+					if res != tc.expected {
+						t.Errorf("%d: expected:\n  %s\n\ngot:\n%s", i,
+							strings.ReplaceAll(tc.expected, "\n", "\n  "),
+							strings.ReplaceAll(res, "\n", "\n  "))
+					}
+				})
 			}
 		})
-	}
-}
-
-func TestInternalEscape(t *testing.T) {
-	testCases := []struct {
-		input    []byte
-		start    int
-		expected string
-	}{
-		{nil, 0, ""},
-		{[]byte(""), 0, ""},
-		{[]byte("abc"), 0, "abc"},
-		{[]byte("‹abc›"), 0, "?abc?"},
-		{[]byte("‹abc›"), 3, "‹abc?"},
-		{[]byte("‹abc›def›ghi"), 3, "‹abc?def?ghi"},
-		{[]byte("‹abc›"), len([]byte("‹abc›")), "‹abc›"},
-		{[]byte("‹abc›‹def›"), len([]byte("‹abc›")), "‹abc›?def?"},
-	}
-
-	for _, tc := range testCases {
-		actual := string(internalEscapeBytes(tc.input, tc.start))
-		if actual != tc.expected {
-			t.Errorf("%q/%d: expected %q, got %q", string(tc.input), tc.start, tc.expected, actual)
-		}
-	}
-}
-
-func TestCustomSafeTypes(t *testing.T) {
-	defer func(prev map[reflect.Type]bool) { safeTypeRegistry = prev }(safeTypeRegistry)
-	RegisterSafeType(reflect.TypeOf(int32(123)))
-
-	actual := Sprint(123, int32(456))
-	const expected = `‹123› 456`
-	if actual != expected {
-		t.Errorf("expected %q, got %q", expected, actual)
-	}
-
-	// Unsafe can override.
-	actual = Sprint(123, Unsafe(int32(456)))
-	const expected2 = `‹123› ‹456›`
-	if actual != expected2 {
-		t.Errorf("expected %q, got %q", expected2, actual)
 	}
 }
 
@@ -328,7 +316,7 @@ func TestRedactStream(t *testing.T) {
 		{"%v", Safe(123), "123"},
 		{"%05d", Safe(123), "00123"},
 		{"%#x", 17, "‹0x11›"},
-		{"%+v", &complexObj{"‹›"}, "‹&{v:??}›"},
+		{"%+v", &complexObj{"‹›"}, "&{v:‹??›}"},
 		{"%v", &safestringer{"as"}, "as"},
 		{"%v", &stringer{"as"}, "‹as›"},
 		{"%v", &safefmtformatter{"af"}, "af"},
@@ -337,18 +325,18 @@ func TestRedactStream(t *testing.T) {
 		// Printers that cause panics during rendering.
 		{"%v", &safepanicObj1{"s1-x‹y›z"}, `%!v(PANIC=String method: s1-x?y?z)`},
 		{"%v", &safepanicObj2{"s2-x‹y›z"}, `%!v(PANIC=Format method: s2-x?y?z)`},
-		{"%v", &panicObj1{"p1-x‹y›z"}, `‹%!v(PANIC=String method: p1-x?y?z)›`},
-		{"%v", &panicObj2{"p2-x‹y›z"}, `‹%!v(PANIC=Format method: p2-x?y?z)›`},
-		{"%v", &panicObj3{"p3-x‹y›z"}, `%!v(PANIC=SafeFormatter method: p3-x?y?z)`},
-		{"%v", &panicObj4{"unused"}, `%!v(PANIC=SafeMessager)`},
+		{"%v", &panicObj1{"p1-x‹y›z"}, `%!v(PANIC=String method: ‹p1-x?y?z›)`},
+		{"%v", &panicObj2{"p2-x‹y›z"}, `%!v(PANIC=Format method: ‹p2-x?y?z›)`},
+		{"%v", &panicObj3{"p3-x‹y›z"}, `%!v(PANIC=SafeFormat method: ‹p3-x?y?z›)`},
+		{"%v", &panicObj4{"unused"}, `%!v(PANIC=SafeMessager method: ‹woo›)`},
 		{"%v", (*safestringer)(nil), `<nil>`},
 		{"%v", (*safemsg)(nil), `<nil>`},
-		{"%v", (*safefmtformatter)(nil), `%!v(PANIC=Format method: runtime error: invalid memory address or nil pointer dereference)`},
+		{"%v", (*safefmtformatter)(nil), `<nil>`},
 		{"%v", (*safepanicObj1)(nil), `<nil>`},
-		{"%v", (*safepanicObj2)(nil), `%!v(PANIC=Format method: runtime error: invalid memory address or nil pointer dereference)`},
-		{"%v", (*panicObj1)(nil), `‹<nil>›`},
-		{"%v", (*panicObj2)(nil), `‹%!v(PANIC=Format method: runtime error: invalid memory address or nil pointer dereference)›`},
-		{"%v", (*panicObj3)(nil), `%!v(PANIC=SafeFormatter method: runtime error: invalid memory address or nil pointer dereference)`},
+		{"%v", (*safepanicObj2)(nil), `<nil>`},
+		{"%v", (*panicObj1)(nil), `<nil>`},
+		{"%v", (*panicObj2)(nil), `<nil>`},
+		{"%v", (*panicObj3)(nil), `<nil>`},
 		{"%v", (*panicObj4)(nil), `<nil>`},
 	}
 
@@ -364,6 +352,115 @@ func TestRedactStream(t *testing.T) {
 		}
 	}
 }
+
+func Example_format() {
+	testCases := []struct {
+		format string
+		args   []interface{}
+	}{
+		{"%d", []interface{}{123}},
+		{"%v", []interface{}{[]int{123, 456}}},
+		{"%v", []interface{}{[]RedactableString{"safe", "‹unsafe›"}}},
+		{"%v", []interface{}{[]safe{"safe", "safe2"}}},
+		{"%v", []interface{}{[]safestringer{{"safe"}, {"safe2"}}}},
+		{"%v", []interface{}{makeMixedInts()}},
+		{"%+v", []interface{}{makeMixedInts()}},
+		{"%v", []interface{}{[]mixedInts{makeMixedInts(), makeMixedInts()}}},
+		{"%+v", []interface{}{makeMixedSafe()}},
+		{"%+v", []interface{}{makeMixedSafeStringer()}},
+		{"%+v", []interface{}{makeMixedRedactableString()}},
+		{"%+v", []interface{}{makeMixedRedactableBytes()}},
+	}
+
+	type formatterFn func(format string, args ...interface{}) string
+	formatters := []struct {
+		name string
+		fn   formatterFn
+	}{
+		{"fmt.sprint", fmt.Sprintf},
+		{"redact.sprint", func(format string, args ...interface{}) string { return string(Sprintf(format, args...)) }},
+		{"redact.printer", func(format string, args ...interface{}) string {
+			fn := func(w p) { w.Printf(format, args...) }
+			return string(Sprint(compose{fn: fn}))
+		}},
+	}
+
+	for _, tc := range testCases {
+		base := fmt.Sprintf("%q :: %T :: %+v", tc.format, tc.args[0], tc.args)
+		base = ptrRe.ReplaceAllString(base, "℘")
+		fmt.Println(base)
+		for _, f := range formatters {
+			result := f.fn(tc.format, tc.args...)
+			// Erase pointers.
+			result = ptrRe.ReplaceAllString(result, "℘")
+			fmt.Printf("%s:\t%s\n", f.name, result)
+		}
+		fmt.Println()
+	}
+
+	// Output:
+	// "%d" :: int :: [123]
+	// fmt.sprint:	123
+	// redact.sprint:	‹123›
+	// redact.printer:	‹123›
+	//
+	// "%v" :: []int :: [[123 456]]
+	// fmt.sprint:	[123 456]
+	// redact.sprint:	[‹123› ‹456›]
+	// redact.printer:	[‹123› ‹456›]
+	//
+	// "%v" :: []markers.RedactableString :: [[safe ‹unsafe›]]
+	// fmt.sprint:	[safe ‹unsafe›]
+	// redact.sprint:	[safe ‹unsafe›]
+	// redact.printer:	[safe ‹unsafe›]
+	//
+	// "%v" :: []redact.safe :: [[safe safe2]]
+	// fmt.sprint:	[safe safe2]
+	// redact.sprint:	[safe safe2]
+	// redact.printer:	[safe safe2]
+	//
+	// "%v" :: []redact.safestringer :: [[{s:safe} {s:safe2}]]
+	// fmt.sprint:	[{safe} {safe2}]
+	// redact.sprint:	[{‹safe›} {‹safe2›}]
+	// redact.printer:	[{‹safe›} {‹safe2›}]
+	//
+	// "%v" :: redact.mixedInts :: [{a:123 ap:℘ A:123 Ap:℘ Apn:<nil>}]
+	// fmt.sprint:	{123 ℘ 123 ℘ <nil>}
+	// redact.sprint:	{‹123› ‹℘› ‹123› ‹℘› ‹<nil>›}
+	// redact.printer:	{‹123› ‹℘› ‹123› ‹℘› ‹<nil>›}
+	//
+	// "%+v" :: redact.mixedInts :: [{a:123 ap:℘ A:123 Ap:℘ Apn:<nil>}]
+	// fmt.sprint:	{a:123 ap:℘ A:123 Ap:℘ Apn:<nil>}
+	// redact.sprint:	{a:‹123› ap:‹℘› A:‹123› Ap:‹℘› Apn:‹<nil>›}
+	// redact.printer:	{a:‹123› ap:‹℘› A:‹123› Ap:‹℘› Apn:‹<nil>›}
+	//
+	// "%v" :: []redact.mixedInts :: [[{a:123 ap:℘ A:123 Ap:℘ Apn:<nil>} {a:123 ap:℘ A:123 Ap:℘ Apn:<nil>}]]
+	// fmt.sprint:	[{123 ℘ 123 ℘ <nil>} {123 ℘ 123 ℘ <nil>}]
+	// redact.sprint:	[{‹123› ‹℘› ‹123› ‹℘› ‹<nil>›} {‹123› ‹℘› ‹123› ‹℘› ‹<nil>›}]
+	// redact.printer:	[{‹123› ‹℘› ‹123› ‹℘› ‹<nil>›} {‹123› ‹℘› ‹123› ‹℘› ‹<nil>›}]
+	//
+	// "%+v" :: redact.mixedSafe :: [{s1:safe S1:safe s1p:℘ S1p:℘ S1pn:<nil>}]
+	// fmt.sprint:	{s1:safe S1:safe s1p:℘ S1p:℘ S1pn:<nil>}
+	// redact.sprint:	{s1:‹safe› S1:safe s1p:‹℘› S1p:℘ S1pn:<nil>}
+	// redact.printer:	{s1:‹safe› S1:safe s1p:‹℘› S1p:℘ S1pn:<nil>}
+	//
+	// "%+v" :: redact.mixedSafeStringer :: [{s2:{s:safe} s2p:℘ S2:{s:safe} S2p:safe S2pn:<nil>}]
+	// fmt.sprint:	{s2:{s:safe} s2p:℘ S2:{s:safe} S2p:safe S2pn:<nil>}
+	// redact.sprint:	{s2:{s:‹safe›} s2p:‹℘› S2:{s:‹safe›} S2p:safe S2pn:<nil>}
+	// redact.printer:	{s2:{s:‹safe›} s2p:‹℘› S2:{s:‹safe›} S2p:safe S2pn:<nil>}
+	//
+	// "%+v" :: redact.mixedRedactableString :: [{r:safe‹unsafe› rp:℘ R:safe‹unsafe› Rp:℘ Rpn:<nil>}]
+	// fmt.sprint:	{r:safe‹unsafe› rp:℘ R:safe‹unsafe› Rp:℘ Rpn:<nil>}
+	// redact.sprint:	{r:safe‹unsafe› rp:‹℘› R:safe‹unsafe› Rp:safe‹unsafe› Rpn:<nil>}
+	// redact.printer:	{r:safe‹unsafe› rp:‹℘› R:safe‹unsafe› Rp:safe‹unsafe› Rpn:<nil>}
+	//
+	// "%+v" :: redact.mixedRedactableBytes :: [{r:[115 97 102 101 226 128 185 117 110 115 97 102 101 226 128 186] rp:℘ R:[115 97 102 101 226 128 185 117 110 115 97 102 101 226 128 186] Rp:℘ Rpn:<nil>}]
+	// fmt.sprint:	{r:[115 97 102 101 226 128 185 117 110 115 97 102 101 226 128 186] rp:℘ R:[115 97 102 101 226 128 185 117 110 115 97 102 101 226 128 186] Rp:℘ Rpn:<nil>}
+	// redact.sprint:	{r:safe‹unsafe› rp:‹℘› R:safe‹unsafe› Rp:safe‹unsafe› Rpn:<nil>}
+	// redact.printer:	{r:safe‹unsafe› rp:‹℘› R:safe‹unsafe› Rp:safe‹unsafe› Rpn:<nil>}
+}
+
+var ptrRe = regexp.MustCompile(`0x[0-9a-f]{4,16}`)
 
 func TestEscapeBytes(t *testing.T) {
 	testCases := []struct {
@@ -515,4 +612,91 @@ type safeNil struct {
 
 func (s *safeNil) SafeFormat(p SafePrinter, _ rune) {
 	p.Printf("hello %v", "world")
+}
+
+type mixedInts struct {
+	a   int
+	ap  *int
+	A   int
+	Ap  *int
+	Apn *int
+}
+
+type mixedSafe struct {
+	s1   safe
+	S1   safe
+	s1p  *safe
+	S1p  *safe
+	S1pn *safe
+}
+
+type mixedSafeStringer struct {
+	s2   safestringer
+	s2p  *safestringer
+	S2   safestringer
+	S2p  *safestringer
+	S2pn *safestringer
+}
+
+type mixedRedactableString struct {
+	r   RedactableString
+	rp  *RedactableString
+	R   RedactableString
+	Rp  *RedactableString
+	Rpn *RedactableString
+}
+
+type mixedRedactableBytes struct {
+	r   RedactableBytes
+	rp  *RedactableBytes
+	R   RedactableBytes
+	Rp  *RedactableBytes
+	Rpn *RedactableBytes
+}
+
+func makeMixedInts() mixedInts {
+	i := 123
+	return mixedInts{
+		a:  i,
+		ap: &i,
+		A:  i,
+		Ap: &i,
+	}
+}
+func makeMixedSafe() mixedSafe {
+	s := safe("safe")
+	return mixedSafe{
+		s1:  s,
+		s1p: &s,
+		S1:  s,
+		S1p: &s,
+	}
+}
+func makeMixedSafeStringer() mixedSafeStringer {
+	ss := safestringer{"safe"}
+	return mixedSafeStringer{
+		s2:  ss,
+		s2p: &ss,
+		S2:  ss,
+		S2p: &ss,
+	}
+}
+func makeMixedRedactableString() mixedRedactableString {
+	r := RedactableString("safe‹unsafe›")
+	return mixedRedactableString{
+		r:  r,
+		rp: &r,
+		R:  r,
+		Rp: &r,
+	}
+}
+
+func makeMixedRedactableBytes() mixedRedactableBytes {
+	r := RedactableBytes("safe‹unsafe›")
+	return mixedRedactableBytes{
+		r:  r,
+		rp: &r,
+		R:  r,
+		Rp: &r,
+	}
 }

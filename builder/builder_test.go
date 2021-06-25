@@ -12,11 +12,15 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 
-package redact
+package builder
 
 import (
 	"fmt"
 	"testing"
+
+	m "github.com/cockroachdb/redact/internal/markers"
+	w "github.com/cockroachdb/redact/internal/redact"
+	ifmt "github.com/cockroachdb/redact/internal/rfmt"
 )
 
 func TestBuilder(t *testing.T) {
@@ -28,13 +32,13 @@ func TestBuilder(t *testing.T) {
 	b.Print("unsafe")
 	b.SafeRune('\n')
 
-	b.Print(Safe("safe"))
+	b.Print(w.Safe("safe"))
 	b.SafeRune('\n')
 
 	b.Printf("safe")
 	b.SafeRune('\n')
 
-	b.Printf("hello %v %v", Safe("safe"), "unsafe")
+	b.Printf("hello %v %v", w.Safe("safe"), "unsafe")
 	b.SafeRune('\n')
 
 	b.SafeString("safe\n")
@@ -44,6 +48,8 @@ func TestBuilder(t *testing.T) {
 
 	b.UnsafeString("unsafe")
 	b.SafeRune('\n')
+	b.UnsafeString("unsafe" + m.StartS[:1])
+	b.SafeRune('\n')
 
 	b.UnsafeRune('U')
 	b.SafeRune('\n')
@@ -51,7 +57,7 @@ func TestBuilder(t *testing.T) {
 	b.UnsafeByte('U')
 	b.SafeRune('\n')
 
-	b.UnsafeByte(startRedactableS[0])
+	b.UnsafeByte(m.StartS[0])
 	b.SafeRune('\n')
 
 	b.UnsafeBytes([]byte("UUU"))
@@ -66,6 +72,7 @@ hello safe ‹unsafe›
 safe
 S
 ‹unsafe›
+‹unsafe` + "\342" + `?›
 ‹U›
 ‹U›
 ‹?›
@@ -78,7 +85,7 @@ S
 		t.Errorf("expected:\n%s\n\ngot:\n%s", expectedR, actualB)
 	}
 
-	if actualR2 := Sprint(&b); actualR2 != expectedR {
+	if actualR2 := ifmt.Sprint(&b); actualR2 != expectedR {
 		t.Errorf("expected:\n%s\n\ngot:\n%s", expectedR, actualR2)
 	}
 
@@ -91,6 +98,7 @@ hello safe unsafe
 safe
 S
 unsafe
+unsafe` + "\342" + `?
 U
 U
 ?

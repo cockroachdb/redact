@@ -17,6 +17,8 @@ package redact
 import (
 	"reflect"
 	"sort"
+
+	"github.com/cockroachdb/redact/builder"
 )
 
 // JoinTo writes the given slice of values delimited by the provided
@@ -41,7 +43,7 @@ func JoinTo(w SafeWriter, delim RedactableString, values interface{}) {
 // given slice of redactable strings, adjoined
 // with the provided delimiter.
 func Join(delim RedactableString, s []RedactableString) RedactableString {
-	var b StringBuilder
+	var b builder.StringBuilder
 	JoinTo(&b, delim, s)
 	return b.RedactableString()
 }

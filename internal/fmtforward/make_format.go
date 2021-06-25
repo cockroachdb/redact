@@ -12,7 +12,7 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 
-package redact
+package fmtforward
 
 import (
 	"fmt"
@@ -21,7 +21,10 @@ import (
 	"strings"
 )
 
-func reproducePrintf(w io.Writer, s fmt.State, verb rune, arg interface{}) {
+// ReproducePrintf calls fmt.Print/fmt.Printf on the argument
+// based on the details present in the fmt.State and
+// writes to the io.Writer.
+func ReproducePrintf(w io.Writer, s fmt.State, verb rune, arg interface{}) {
 	justV, revFmt := MakeFormat(s, verb)
 	if justV {
 		// Common case, avoids generating then parsing the format again.
@@ -31,8 +34,7 @@ func reproducePrintf(w io.Writer, s fmt.State, verb rune, arg interface{}) {
 	}
 }
 
-// MakeFormat is a helper for use by implementations of the
-// SafeFormatter interface. It reproduces the format currently active
+// MakeFormat reproduces the format currently active
 // in fmt.State and verb. This is provided because Go's standard
 // fmt.State does not make the original format string available to us.
 //
