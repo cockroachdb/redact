@@ -32,6 +32,7 @@ type StringBuilder struct {
 	ib.Buffer
 }
 
+var _ fmt.Stringer = StringBuilder{}
 var _ fmt.Stringer = (*StringBuilder)(nil)
 
 // SafeFormat implements SafeFormatter.

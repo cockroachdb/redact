@@ -57,26 +57,30 @@ const (
 )
 
 // RedactableBytes returns the bytes in the buffer.
-func (b *Buffer) RedactableBytes() m.RedactableBytes {
-	copy := *b
-	copy.finalize()
-	return m.RedactableBytes(copy.buf)
+func (b Buffer) RedactableBytes() m.RedactableBytes {
+	// NB: we're dependent on the fact this is a copy of the original
+	// buffer. The finalize() method should not be called
+	// in a conceputally read-only accessor like RedactableBytes().
+	b.finalize()
+	return m.RedactableBytes(b.buf)
 }
 
 // RedactableString returns the bytes in the buffer.
-func (b *Buffer) RedactableString() m.RedactableString {
-	if b == nil {
-		// Special case, useful in debugging.
-		return "<nil>"
-	}
-	copy := *b
-	copy.finalize()
-	return m.RedactableString(copy.buf)
+func (b Buffer) RedactableString() m.RedactableString {
+	// NB: we're dependent on the fact this is a copy of the original
+	// buffer. The finalize() method should not be called
+	// in a conceputally read-only accessor like RedactableString().
+	b.finalize()
+	return m.RedactableString(b.buf)
 }
 
 // String implemens fmt.Stringer.
-func (b *Buffer) String() string {
-	return b.RedactableString().StripMarkers()
+func (b Buffer) String() string {
+	// NB: we're dependent on the fact this is a copy of the original
+	// buffer. The finalize() method should not be called
+	// in a conceputally read-only accessor like String().
+	b.finalize()
+	return m.RedactableString(b.buf).StripMarkers()
 }
 
 // TakeRedactableBytes returns the buffer

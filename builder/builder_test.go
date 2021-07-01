@@ -111,4 +111,8 @@ UUU
 	if actual != expected {
 		t.Errorf("expected:\n%s\n\ngot:\n%s", expected, actual)
 	}
+
+	if actual := fmt.Sprintf("%v", b); actual != expected {
+		t.Errorf("expected:\n%s\n\ngot:\n%s", expected, actual)
+	}
 }
