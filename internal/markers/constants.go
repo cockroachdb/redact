@@ -25,6 +25,7 @@ const (
 	EscapeMark  = '?'
 	EscapeMarkS = string(EscapeMark)
 	RedactedS   = StartS + "×" + EndS
+	Truncate    = `...`
 )
 
 // Internal variables.

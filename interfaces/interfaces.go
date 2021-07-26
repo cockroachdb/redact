@@ -147,3 +147,8 @@ type SafeValue interface {
 type SafeMessager = interface {
 	SafeMessage() string
 }
+
+type TruncatedValue struct {
+	Value  interface{}
+	Length int
+}
