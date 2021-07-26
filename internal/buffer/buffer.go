@@ -31,6 +31,11 @@ type Buffer struct {
 	validUntil int // exclusive upper bound of data that's already validated
 	mode       OutputMode
 	markerOpen bool
+
+	// runes is the count of
+	runes  int
+	limit  int
+	excess bool
 }
 
 // OutputMode determines how writes are processed in the Buffer.
@@ -128,6 +133,20 @@ func (b *Buffer) Cap() int {
 // needed. The return value n is the length of p; err is always nil. If the
 // buffer becomes too large, Write will panic with ErrTooLarge.
 func (b *Buffer) Write(p []byte) (n int, err error) {
+	if b.limit != 0 {
+		if b.limit == b.runes {
+			if len(p) != 0 {
+				b.excess = true
+			}
+			return
+		}
+
+		runes, size, excess := limitRunes(p, b.limit-b.runes)
+		b.runes += runes
+		p = p[:size]
+		b.excess = excess
+	}
+
 	b.startWrite()
 	m, ok := b.tryGrowByReslice(len(p))
 	if !ok {
@@ -140,6 +159,20 @@ func (b *Buffer) Write(p []byte) (n int, err error) {
 // needed. The return value n is the length of s; err is always nil. If the
 // buffer becomes too large, WriteString will panic with ErrTooLarge.
 func (b *Buffer) WriteString(s string) (n int, err error) {
+	if b.limit != 0 {
+		if b.limit == b.runes {
+			if len(s) != 0 {
+				b.excess = true
+			}
+			return
+		}
+
+		runes, size, excess := limitRunes([]byte(s), b.limit-b.runes)
+		b.runes += runes
+		s = s[:size]
+		b.excess = excess
+	}
+
 	b.startWrite()
 	m, ok := b.tryGrowByReslice(len(s))
 	if !ok {
@@ -148,8 +181,27 @@ func (b *Buffer) WriteString(s string) (n int, err error) {
 	return copy(b.buf[m:], s), nil
 }
 
+func limitRunes(p []byte, limit int) (runes int, size int, excess bool) {
+	for runes < limit && len(p) > 0 {
+		_, s := utf8.DecodeRune(p)
+		runes++
+		size += s
+		p = p[s:]
+	}
+	excess = len(p) != 0
+	return
+}
+
 // WriteByte emits a single byte.
 func (b *Buffer) WriteByte(s byte) error {
+	if b.limit != 0 {
+		if b.limit == b.runes {
+			b.excess = true
+			return nil
+		}
+		b.runes++
+	}
+
 	b.startWrite()
 	if b.mode == UnsafeEscaped &&
 		(s >= utf8.RuneSelf ||
@@ -168,6 +220,14 @@ func (b *Buffer) WriteByte(s byte) error {
 
 // WriteRune emits a single rune.
 func (b *Buffer) WriteRune(s rune) error {
+	if b.limit != 0 {
+		if b.limit == b.runes {
+			b.excess = true
+			return nil
+		}
+		b.runes++
+	}
+
 	b.startWrite()
 	l := utf8.RuneLen(s)
 	m, ok := b.tryGrowByReslice(l)
@@ -176,6 +236,39 @@ func (b *Buffer) WriteRune(s rune) error {
 	}
 	_ = utf8.EncodeRune(b.buf[m:], s)
 	return nil
+}
+
+type TruncateState struct {
+	buf   *Buffer
+	limit int
+}
+
+// TODO(kzh): write here "limit rune count"
+func (b *Buffer) Truncate(limit int) TruncateState {
+	prev := TruncateState{b, b.limit}
+	if b.limit == 0 || b.runes+limit < b.limit {
+		b.limit = b.runes + limit
+	}
+	return prev
+}
+
+func (s TruncateState) Restore() {
+	if s.buf.excess && (s.limit == 0 || s.limit != s.buf.limit) {
+		s.buf.excess = false
+		s.buf.markTruncate()
+	}
+	s.buf.limit = s.limit
+}
+
+func (b *Buffer) markTruncate() {
+	if len(b.buf) == 0 {
+		return
+	}
+	p, ok := b.tryGrowByReslice(len(m.Truncate))
+	if !ok {
+		p = b.grow(len(m.Truncate))
+	}
+	copy(b.buf[p:], m.Truncate)
 }
 
 // finalize ensures that all the buffer is properly

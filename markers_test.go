@@ -204,6 +204,46 @@ func TestPrinter(t *testing.T) {
 		{func(w p) { w.Print(buf) }, "safe ‹unsafe›"},
 		{func(w p) { w.Printf("%v", &buf) }, "safe ‹unsafe›"},
 		{func(w p) { w.Print(&buf) }, "safe ‹unsafe›"},
+
+		// Truncate
+		{func(w p) { w.Print(Truncate(Safe("säfe"), 3)) }, "säf…"},
+		{func(w p) { w.Print(Truncate(Safe("safe"), 5)) }, "safe"},
+		{func(w p) { w.Print(Truncate(Safe("safe"), 100)) }, "safe"},
+		{func(w p) { w.Print(Truncate("unsäfe", 3)) }, "‹uns›…"},
+		{func(w p) { w.Print(Truncate("unsafe", 100)) }, "‹unsafe›"},
+		{func(w p) {
+			w.Printf("Unsafe: %v Safe: %v", Truncate("unsafe", 3), Truncate(Safe("safe"), 2))
+		}, "Unsafe: ‹uns›… Safe: sa…"},
+		// Nested Truncate
+		{func(w p) { w.Print(Truncate(Truncate(Safe("safe"), 5), 3)) }, "saf…"},
+		{func(w p) { w.Print(Truncate(Truncate(Safe("safe"), 3), 5)) }, "saf…"},
+		{func(w p) {
+			w.Print(Truncate(compose{func(p2 p) {
+				p2.Printf(
+					"Inside %v %v",
+					Truncate(Safe("safe"), 3),
+					Truncate("unsafe", 3),
+				)
+			}}, 10))
+		}, "Inside saf…"},
+		{func(w p) {
+			w.Print(Truncate(compose{func(p2 p) {
+				p2.Printf(
+					"Inside %v %v",
+					Truncate(Safe("safe"), 3),
+					Truncate("unsafe", 3),
+				)
+			}}, 20))
+		}, "Inside saf… ‹uns›…"},
+		{func(w p) {
+			w.Print(Truncate(compose{func(p2 p) {
+				p2.Printf(
+					"Inside %v %v",
+					Truncate(Safe("safe"), 3),
+					Truncate("unsafe", 20),
+				)
+			}}, 20))
+		}, "Inside saf… ‹unsafe›"},
 	}
 
 	var methods = []struct {
