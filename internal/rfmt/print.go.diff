@@ -1,5 +1,5 @@
---- print.go.orig	2021-06-18 16:45:56.623967000 +0200
-+++ print.go	2021-06-19 16:26:32.751061000 +0200
+--- print.go.orig	2021-09-03 11:01:24.167095000 +0200
++++ print.go	2021-09-03 11:06:51.631705000 +0200
 @@ -1,16 +1,27 @@
 +// Code generated from print.go.orig. DO NOT EDIT
 +// GENERATED FILE DO NOT EDIT
@@ -471,7 +471,16 @@
  	end := len(format)
  	argNum := 0         // we process one argument per non-trivial format
  	afterIndex := false // previous item in format was an index like [3].
-@@ -1147,6 +1265,7 @@
+@@ -1011,6 +1129,8 @@
+ 				p.fmt.zero = false // Do not pad with zeros to the right.
+ 			case ' ':
+ 				p.fmt.space = true
++			case '!':
++				p.fmt.ellipsis = true
+ 			default:
+ 				// Fast path for common case of ascii lower case simple verbs
+ 				// without precision or width or argument indices.
+@@ -1147,6 +1267,7 @@
  }
  
  func (p *pp) doPrint(a []interface{}) {
@@ -479,7 +488,7 @@
  	prevString := false
  	for argNum, arg := range a {
  		isString := arg != nil && reflect.TypeOf(arg).Kind() == reflect.String
-@@ -1162,6 +1281,7 @@
+@@ -1162,6 +1283,7 @@
  // doPrintln is like doPrint but always adds a space between arguments
  // and a newline after the last argument.
  func (p *pp) doPrintln(a []interface{}) {

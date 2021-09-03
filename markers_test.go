@@ -235,6 +235,17 @@ func TestPrinter(t *testing.T) {
 		{func(w p) { w.Printf("tr %.3v", &safeNil{}) }, `tr hello ‹world›`},
 		{func(w p) { w.Printf("tr %.3v", buf) }, "tr safe ‹unsafe›"},
 
+		// Additionally, it can report when truncation has occurred.
+		{func(w p) { w.Printf("tre %!.3v %!.3v", "hello", Safe("world")) }, `tre ‹hel…› wor…`},
+		{func(w p) { w.Printf("tre %!.3s %!.3s", "hello", Safe("world")) }, `tre ‹hel…› wor…`},
+		{func(w p) { w.Printf("tre %!.3q %!.3q", "hello", Safe("world")) }, `tre ‹"hel…"› "wor…"`},
+		{func(w p) { w.Printf("tre %!#.3q %!#.3q", "hello", Safe("world")) }, "tre ‹`hel…`› `wor…`"},
+		{func(w p) { w.Printf("tre %!.3v", map[string]string{"hello": "world"}) }, `tre map[‹hel…›:‹wor…›]`},
+		{func(w p) { w.Printf("tre %!.1T", 123) }, `tre i…`},
+		{func(w p) { w.Printf("tre %!.3s %!.3s", []byte("hello"), Safe([]byte("world"))) }, `tre ‹hel…› wor…`},
+		{func(w p) { w.Printf("tre %!.3x", "hello") }, `tre ‹68656c…›`},
+		{func(w p) { w.Printf("tre %!.1v", "☃☀") }, `tre ‹☃…›`},
+
 	}
 
 	var methods = []struct {
