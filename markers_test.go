@@ -204,6 +204,48 @@ func TestPrinter(t *testing.T) {
 		{func(w p) { w.Print(buf) }, "safe ‹unsafe›"},
 		{func(w p) { w.Printf("%v", &buf) }, "safe ‹unsafe›"},
 		{func(w p) { w.Print(&buf) }, "safe ‹unsafe›"},
+
+		// Redaction supports truncation for simple strings like printf.
+		{func(w p) { w.Printf("tr %.3s %.3s", "hello", Safe("world")) }, `tr ‹hel› wor`},
+		{func(w p) { w.Printf("tr %.3q %.3q", "hello", Safe("world")) }, `tr ‹"hel"› "wor"`},
+		{func(w p) { w.Printf("tr %.3v %.3v", "hello", Safe("world")) }, `tr ‹hel› wor`},
+		{func(w p) { w.Printf("tr %#.3q %#.3q", "hello", Safe("world")) }, "tr ‹`hel`› `wor`"},
+		{func(w p) { w.Printf("tr %.1T", 123) }, `tr i`},
+		{func(w p) { w.Printf("tr %.3v", map[string]string{"hello": "world"}) }, `tr map[‹hel›:‹wor›]`},
+		// Note that the precision affects the amount of input represented, not the size of the output.
+		// For example, with hexadecimal output.
+		{func(w p) { w.Printf("tr %.3x", "hello") }, `tr ‹68656c›`},
+		// Respect UTF-8 boundaries.
+		{func(w p) { w.Printf("tr %.1v", "☃☀") }, `tr ‹☃›`},
+		// Byte arrays are either represented as byte values or strings.
+		{func(w p) { w.Printf("tr %.1v %.1v", []byte("hello"), Safe([]byte("world"))) },
+			`tr [‹104› ‹101› ‹108› ‹108› ‹111›] [119 111 114 108 100]`},
+		{func(w p) { w.Printf("tr %.3s %.3s", []byte("hello"), Safe([]byte("world"))) }, `tr ‹hel› wor`},
+		// Special values do not get truncated.
+		{func(w p) { w.Printf("tr %.1v", nil) }, `tr <nil>`},
+		// Simple objects like booleans, integers etc do not get truncated.
+		{func(w p) { w.Printf("tr %.1v %.1v %.1v", 123, true, 11i) }, `tr ‹123› ‹true› (‹0›‹+1e+01›i)`},
+		{func(w p) { w.Printf("tr %.1v %.1v %.1v", Safe(123), Safe(true), Safe(11i)) }, `tr 123 true (0+1e+01i)`},
+		// Redactable strings do not get truncated by precision, because they have internal structure
+		// that could be broken by truncation.
+		{func(w p) { w.Printf("tr %.3v", RedactableString("‹hello› world")) }, `tr ‹hello› world`},
+		// By default, complex objects with a SafeFormat function do not get truncated by precision.
+		// This is because SafeFormat is itself responsible for implementing truncation by recognizing
+		// the precision field.
+		{func(w p) { w.Printf("tr %.3v", &safeNil{}) }, `tr hello ‹world›`},
+		{func(w p) { w.Printf("tr %.3v", buf) }, "tr safe ‹unsafe›"},
+
+		// Additionally, it can report when truncation has occurred.
+		{func(w p) { w.Printf("tre %!.3v %!.3v", "hello", Safe("world")) }, `tre ‹hel…› wor…`},
+		{func(w p) { w.Printf("tre %!.3s %!.3s", "hello", Safe("world")) }, `tre ‹hel…› wor…`},
+		{func(w p) { w.Printf("tre %!.3q %!.3q", "hello", Safe("world")) }, `tre ‹"hel…"› "wor…"`},
+		{func(w p) { w.Printf("tre %!#.3q %!#.3q", "hello", Safe("world")) }, "tre ‹`hel…`› `wor…`"},
+		{func(w p) { w.Printf("tre %!.3v", map[string]string{"hello": "world"}) }, `tre map[‹hel…›:‹wor…›]`},
+		{func(w p) { w.Printf("tre %!.1T", 123) }, `tre i…`},
+		{func(w p) { w.Printf("tre %!.3s %!.3s", []byte("hello"), Safe([]byte("world"))) }, `tre ‹hel…› wor…`},
+		{func(w p) { w.Printf("tre %!.3x", "hello") }, `tre ‹68656c…›`},
+		{func(w p) { w.Printf("tre %!.1v", "☃☀") }, `tre ‹☃…›`},
+
 	}
 
 	var methods = []struct {

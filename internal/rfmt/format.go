@@ -15,6 +15,8 @@ import (
 const (
 	ldigits = "0123456789abcdefx"
 	udigits = "0123456789ABCDEFX"
+
+	ellipsisS = "…"
 )
 
 const (
@@ -31,6 +33,9 @@ type fmtFlags struct {
 	sharp       bool
 	space       bool
 	zero        bool
+
+	// ellipsis tells printf to insert an ellipsis after a truncated value.
+	ellipsis bool
 
 	// For the formats %+v %#v, we set the plusV/sharpV flags
 	// and clear the plus/sharp flags since %+v and %#v are in effect
@@ -315,14 +320,18 @@ func (f *fmt) fmtInteger(u uint64, base int, isSigned bool, verb rune, digits st
 	f.zero = oldZero
 }
 
-// truncate truncates the string s to the specified precision, if present.
+// truncateString truncates the string s to the specified precision, if present.
 func (f *fmt) truncateString(s string) string {
 	if f.precPresent {
 		n := f.prec
 		for i := range s {
 			n--
 			if n < 0 {
-				return s[:i]
+				res := s[:i]
+				if f.ellipsis {
+					res += ellipsisS
+				}
+				return res
 			}
 		}
 	}
@@ -336,7 +345,11 @@ func (f *fmt) truncate(b []byte) []byte {
 		for i := 0; i < len(b); {
 			n--
 			if n < 0 {
-				return b[:i]
+				res := b[:i]
+				if f.ellipsis {
+					res = append(res, ellipsisS...)
+				}
+				return res
 			}
 			wid := 1
 			if b[i] >= utf8.RuneSelf {
@@ -368,8 +381,12 @@ func (f *fmt) fmtSbx(s string, b []byte, digits string) {
 		length = len(s)
 	}
 	// Set length to not process more bytes than the precision demands.
+	addEllipsis := false
 	if f.precPresent && f.prec < length {
 		length = f.prec
+		if f.ellipsis {
+			addEllipsis = true
+		}
 	}
 	// Compute width of the encoding taking into account the f.sharp and f.space flag.
 	width := 2 * length
@@ -421,6 +438,11 @@ func (f *fmt) fmtSbx(s string, b []byte, digits string) {
 		f.buf.WriteByte(digits[c>>4])
 		f.buf.WriteByte(digits[c&0xF])
 	}
+	// If an ellipsis was requested, add it.
+	if addEllipsis {
+		f.buf.writeString(ellipsisS)
+	}
+
 	// Handle padding to the right.
 	if f.widPresent && f.wid > width && f.minus {
 		f.writePadding(f.wid - width)

@@ -1129,6 +1129,8 @@ formatLoop:
 				p.fmt.zero = false // Do not pad with zeros to the right.
 			case ' ':
 				p.fmt.space = true
+			case '!':
+				p.fmt.ellipsis = true
 			default:
 				// Fast path for common case of ascii lower case simple verbs
 				// without precision or width or argument indices.

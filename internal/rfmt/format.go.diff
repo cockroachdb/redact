@@ -1,13 +1,38 @@
---- format.go.orig	2021-06-18 16:45:51.065116000 +0200
-+++ format.go	2021-06-18 17:30:58.628179000 +0200
-@@ -1,3 +1,6 @@
+--- format.go.orig	2021-09-03 11:01:24.164634000 +0200
++++ format.go	2021-09-03 11:06:51.632979000 +0200
+@@ -1,8 +1,11 @@
 +// Code generated from the Go standard library. DO NOT EDIT
 +// GENERATED FILE DO NOT EDIT
 +//
  // Copyright 2009 The Go Authors. All rights reserved.
  // Use of this source code is governed by a BSD-style
  // license that can be found in the LICENSE file.
-@@ -65,25 +68,17 @@
+ 
+-package fmt
++package rfmt
+ 
+ import (
+ 	"strconv"
+@@ -12,6 +15,8 @@
+ const (
+ 	ldigits = "0123456789abcdefx"
+ 	udigits = "0123456789ABCDEFX"
++
++	ellipsisS = "…"
+ )
+ 
+ const (
+@@ -29,6 +34,9 @@
+ 	space       bool
+ 	zero        bool
+ 
++	// ellipsis tells printf to insert an ellipsis after a truncated value.
++	ellipsis bool
++
+ 	// For the formats %+v %#v, we set the plusV/sharpV flags
+ 	// and clear the plus/sharp flags since %+v and %#v are in effect
+ 	// different, flagless formats set at the top level.
+@@ -65,25 +73,17 @@
  	if n <= 0 { // No padding bytes needed.
  		return
  	}
@@ -36,7 +61,46 @@
  }
  
  // pad appends b to f.buf, padded on left (!f.minus) or right (f.minus).
-@@ -401,19 +396,20 @@
+@@ -327,7 +327,11 @@
+ 		for i := range s {
+ 			n--
+ 			if n < 0 {
+-				return s[:i]
++				res := s[:i]
++				if f.ellipsis {
++					res += ellipsisS
++				}
++				return res
+ 			}
+ 		}
+ 	}
+@@ -341,7 +345,11 @@
+ 		for i := 0; i < len(b); {
+ 			n--
+ 			if n < 0 {
+-				return b[:i]
++				res := b[:i]
++				if f.ellipsis {
++					res = append(res, ellipsisS...)
++				}
++				return res
+ 			}
+ 			wid := 1
+ 			if b[i] >= utf8.RuneSelf {
+@@ -373,8 +381,12 @@
+ 		length = len(s)
+ 	}
+ 	// Set length to not process more bytes than the precision demands.
++	addEllipsis := false
+ 	if f.precPresent && f.prec < length {
+ 		length = f.prec
++		if f.ellipsis {
++			addEllipsis = true
++		}
+ 	}
+ 	// Compute width of the encoding taking into account the f.sharp and f.space flag.
+ 	width := 2 * length
+@@ -401,19 +413,20 @@
  		f.writePadding(f.wid - width)
  	}
  	// Write the encoding directly into the output buffer.
@@ -61,7 +125,7 @@
  			}
  		}
  		if b != nil {
-@@ -422,9 +418,9 @@
+@@ -422,9 +435,14 @@
  			c = s[i] // Take a byte from the input string.
  		}
  		// Encode each byte as two hexadecimal digits.
@@ -70,6 +134,11 @@
 +		f.buf.WriteByte(digits[c&0xF])
  	}
 -	*f.buf = buf
++	// If an ellipsis was requested, add it.
++	if addEllipsis {
++		f.buf.writeString(ellipsisS)
++	}
++
  	// Handle padding to the right.
  	if f.widPresent && f.wid > width && f.minus {
  		f.writePadding(f.wid - width)
