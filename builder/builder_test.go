@@ -116,3 +116,18 @@ UUU
 		t.Errorf("expected:\n%s\n\ngot:\n%s", expected, actual)
 	}
 }
+
+func TestMixedWrites(t *testing.T) {
+	var b StringBuilder
+	b.SafeString("safe")
+	b.WriteString("unsafe")
+	b.SafeString("")
+	b.WriteByte('U')
+	b.SafeString("")
+	b.WriteRune('U')
+	actual := b.RedactableString()
+	const expected = `safe‹unsafe›‹U›‹U›`
+	if actual != expected {
+		t.Errorf("expected:\n%s\n\ngot:\n%s", expected, actual)
+	}
+}
