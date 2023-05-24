@@ -76,11 +76,11 @@ func TestBufferUnsafeWrites(t *testing.T) {
 	// Adding empty stuff to a buffer keeps it valid and empty.
 	b.WriteString("")
 	b.checkInvariants(t)
-	b.checkEqual(t, `‹›`)
+	b.checkEqual(t, ``)
 
 	b.Write(nil)
 	b.checkInvariants(t)
-	b.checkEqual(t, `‹›`)
+	b.checkEqual(t, ``)
 
 	// Simple unsafe string.
 	b.WriteString("hello")
@@ -113,11 +113,11 @@ func TestBufferUnsafeWrites(t *testing.T) {
 	// The mode switch may have added markers.
 	b.WriteString("world")
 	b.checkInvariants(t)
-	b.checkEqual(t, `‹hello›‹world›`)
+	b.checkEqual(t, `‹helloworld›`)
 
 	b.WriteString("\nuniverse")
 	b.checkInvariants(t)
-	b.checkEqual(t, `‹hello›‹world›
+	b.checkEqual(t, `‹helloworld›
 ‹universe›`)
 
 	// Newline characters as bytes or runes.
@@ -331,6 +331,27 @@ universe`)
 	b.WriteString("hello")
 	b.checkInvariants(t)
 	b.checkEqual(t, "\344\254hello")
+}
+
+func TestBufferDelimiterElision(t *testing.T) {
+	var b Buffer
+
+	b.SetMode(SafeRaw)
+	b.WriteString("safe‹unsafe›")
+
+	b.checkInvariants(t)
+	copy := b
+	copy.checkEqual(t, `safe‹unsafe›`)
+
+	b.SetMode(UnsafeEscaped)
+	b.checkInvariants(t)
+	copy = b
+	copy.checkEqual(t, `safe‹unsafe›`)
+
+	b.WriteByte('a')
+	b.checkInvariants(t)
+	copy = b
+	copy.checkEqual(t, `safe‹unsafea›`)
 }
 
 func TestBufferRawSafeWrites(t *testing.T) {
@@ -656,11 +677,11 @@ func Example_mixed_writes() {
 	// fn4+fn4: "hello\nworld‹hello›\n‹world›"   ("hello\nworld" + "‹hello›\n‹world›")
 	// fn4+fn5: "hello\nworld‹safe?unsafe?›"   ("hello\nworld" + "‹safe?unsafe?›")
 	// fn5+fn0: "safe‹unsafe›"   ("safe‹unsafe›" + "")
-	// fn5+fn1: "safe‹unsafe›‹a›"   ("safe‹unsafe›" + "‹a›")
-	// fn5+fn2: "safe‹unsafe›‹a›"   ("safe‹unsafe›" + "‹a›")
-	// fn5+fn3: "safe‹unsafe›‹hello›\n‹world›"   ("safe‹unsafe›" + "‹hello›\n‹world›")
-	// fn5+fn4: "safe‹unsafe›‹hello›\n‹world›"   ("safe‹unsafe›" + "‹hello›\n‹world›")
-	// fn5+fn5: "safe‹unsafe›‹safe?unsafe?›"   ("safe‹unsafe›" + "‹safe?unsafe?›")
+	// fn5+fn1: "safe‹unsafea›"   ("safe‹unsafe›" + "‹a›")
+	// fn5+fn2: "safe‹unsafea›"   ("safe‹unsafe›" + "‹a›")
+	// fn5+fn3: "safe‹unsafehello›\n‹world›"   ("safe‹unsafe›" + "‹hello›\n‹world›")
+	// fn5+fn4: "safe‹unsafehello›\n‹world›"   ("safe‹unsafe›" + "‹hello›\n‹world›")
+	// fn5+fn5: "safe‹unsafesafe?unsafe?›"   ("safe‹unsafe›" + "‹safe?unsafe?›")
 	//
 	// 1  ->  2
 	// fn0+fn0: ""   ("" + "")

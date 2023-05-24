@@ -123,8 +123,8 @@ func TestPrinter(t *testing.T) {
 		// Spaces as runes get preserved.
 		{func(w p) { w.SafeRune(' ') }, ` `},
 		{func(w p) { w.SafeRune('\n') }, "\n"},
-		{func(w p) { w.UnsafeRune(' ') }, `‹›`},
-		{func(w p) { w.UnsafeRune('\n') }, "‹›"},
+		{func(w p) { w.UnsafeRune(' ') }, ``},
+		{func(w p) { w.UnsafeRune('\n') }, ""},
 		// The Safe() API turns anything into something safe. However, the contents
 		// still get escaped as needed.
 		{func(w p) { w.Print("ab ", Safe("c‹d›e ")) }, "‹ab›c?d?e "},
@@ -314,8 +314,8 @@ func TestRedactStream(t *testing.T) {
 		input    interface{}
 		expected string
 	}{
-		{"%v", "", "‹›"},
-		{"%v", " ", "‹›"},
+		{"%v", "", ""},
+		{"%v", " ", ""},
 		{"‹› %v ›››", "abc", "?? ‹abc› ???"},
 		{"%v", "abc ", "‹abc›"},
 		{"%q", "abc ", `‹"abc "›`},

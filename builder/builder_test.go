@@ -126,7 +126,7 @@ func TestMixedWrites(t *testing.T) {
 	b.SafeString("")
 	b.WriteRune('U')
 	actual := b.RedactableString()
-	const expected = `safe‹unsafe›‹U›‹U›`
+	const expected = `safe‹unsafeUU›`
 	if actual != expected {
 		t.Errorf("expected:\n%s\n\ngot:\n%s", expected, actual)
 	}
