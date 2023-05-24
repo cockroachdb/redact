@@ -28,6 +28,9 @@ import (
 // If breakNewLines is set, a closing redaction marker
 // is placed before sequences of one or more newline characters,
 // and an open redaction marker is placed afterwards.
+//
+// If strip is set, final newlines and spaces are trimmed from the
+// output.
 func InternalEscapeBytes(b []byte, startLoc int, breakNewLines, strip bool) (res []byte) {
 	// Note: we use len(...RedactableS) and not len(...RedactableBytes)
 	// because the ...S variant is a compile-time constant so this

@@ -117,17 +117,17 @@ func TestPrinter(t *testing.T) {
 		// Space and newlines at the end of an unsafe string get removed,
 		// but not at the end of a safe string.
 		{func(w p) { w.SafeString("ab \n ") }, "ab \n "},
-		{func(w p) { w.UnsafeString("cd \n ") }, `‹cd›`},
-		{func(w p) { w.Print("ab ", safe("cd ")) }, "‹ab›cd "},
-		{func(w p) { w.Printf("ab :%s: :%s: ", "cd ", safe("de ")) }, "ab :‹cd›: :de : "},
+		{func(w p) { w.UnsafeString("cd \n ") }, "‹cd ›\n‹ ›"},
+		{func(w p) { w.Print("ab ", safe("cd ")) }, "‹ab ›cd "},
+		{func(w p) { w.Printf("ab :%s: :%s: ", "cd ", safe("de ")) }, "ab :‹cd ›: :de : "},
 		// Spaces as runes get preserved.
 		{func(w p) { w.SafeRune(' ') }, ` `},
 		{func(w p) { w.SafeRune('\n') }, "\n"},
-		{func(w p) { w.UnsafeRune(' ') }, ``},
-		{func(w p) { w.UnsafeRune('\n') }, ""},
+		{func(w p) { w.UnsafeRune(' ') }, `‹ ›`},
+		{func(w p) { w.UnsafeRune('\n') }, "‹›\n"},
 		// The Safe() API turns anything into something safe. However, the contents
 		// still get escaped as needed.
-		{func(w p) { w.Print("ab ", Safe("c‹d›e ")) }, "‹ab›c?d?e "},
+		{func(w p) { w.Print("ab ", Safe("c‹d›e ")) }, "‹ab ›c?d?e "},
 		{func(w p) { w.Printf("ab %03d ", Safe(12)) }, "ab 012 "},
 		// Something that'd be otherwise safe, becomes unsafe with Unsafe().
 		{func(w p) { w.Print(Unsafe(SafeString("abc"))) }, "‹abc›"},
@@ -146,7 +146,7 @@ func TestPrinter(t *testing.T) {
 		{func(w p) { w.Printf("%03d", Unsafe(12)) }, "‹012›"},
 		// A string that's already redactable gets included as-is;
 		// in that case, the printf verb and flags are ignored.
-		{func(w p) { w.Print("ab ", Sprint(12, Safe(34))) }, "‹ab›‹12› 34"},
+		{func(w p) { w.Print("ab ", Sprint(12, Safe(34))) }, "‹ab ›‹12› 34"},
 		{func(w p) { w.Printf("ab %q", Sprint(12, Safe(34))) }, "ab ‹12› 34"},
 		{func(w p) { w.Printf("ab %d", Sprint(12, Safe(34))) }, "ab ‹12› 34"},
 		// Nil untyped or interface-typed objects get formatted as safe.
@@ -315,12 +315,12 @@ func TestRedactStream(t *testing.T) {
 		expected string
 	}{
 		{"%v", "", ""},
-		{"%v", " ", ""},
+		{"%v", " ", "‹ ›"},
 		{"‹› %v ›››", "abc", "?? ‹abc› ???"},
-		{"%v", "abc ", "‹abc›"},
+		{"%v", "abc ", "‹abc ›"},
 		{"%q", "abc ", `‹"abc "›`},
-		{"%v", "abc\n ", "‹abc›"},
-		{"%v", "abc \n\n", "‹abc›"},
+		{"%v", "abc\n ", "‹abc›\n‹ ›"},
+		{"%v", "abc \n\n", "‹abc ›\n\n"},
 		{"%v", " \n\nabc", "‹ ›\n\n‹abc›"},
 		{"%v", "‹abc›", "‹?abc?›"},
 		{"%v", 123, "‹123›"},

@@ -236,7 +236,7 @@ func (b *Buffer) startRedactable() {
 // escapeToEnd escapes occurrences of redaction markers in
 // b.buf[b.validUntil:] and advances b.validUntil until the end.
 func (b *Buffer) escapeToEnd(breakNewLines bool) {
-	b.buf = escape.InternalEscapeBytes(b.buf, b.validUntil, breakNewLines, breakNewLines)
+	b.buf = escape.InternalEscapeBytes(b.buf, b.validUntil, breakNewLines, false /* trim */)
 	b.validUntil = len(b.buf)
 }
 
