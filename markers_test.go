@@ -124,7 +124,7 @@ func TestPrinter(t *testing.T) {
 		{func(w p) { w.SafeRune(' ') }, ` `},
 		{func(w p) { w.SafeRune('\n') }, "\n"},
 		{func(w p) { w.UnsafeRune(' ') }, `‹ ›`},
-		{func(w p) { w.UnsafeRune('\n') }, "‹›\n"},
+		{func(w p) { w.UnsafeRune('\n') }, "\n"},
 		// The Safe() API turns anything into something safe. However, the contents
 		// still get escaped as needed.
 		{func(w p) { w.Print("ab ", Safe("c‹d›e ")) }, "‹ab ›c?d?e "},
@@ -484,7 +484,7 @@ func TestEscapeBytes(t *testing.T) {
 		{"abc", "‹abc›"},
 		{"ab›‹c", "‹ab??c›"},
 		{"abc\n\ncde", "‹abc›\n\n‹cde›"},
-		{"\n abc ", "‹›\n‹ abc ›"},
+		{"\n abc ", "\n‹ abc ›"},
 	}
 
 	for _, tc := range testCases {

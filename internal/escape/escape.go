@@ -72,7 +72,12 @@ func InternalEscapeBytes(b []byte, startLoc int, breakNewLines, strip bool) (res
 				copied = true
 			}
 			res = append(res, b[k:i]...)
-			res = append(res, end...)
+			// Either add an end marker, or elide a start marker immediately prior.
+			if bytes.HasSuffix(res, start) {
+				res = res[:len(res)-ls]
+			} else {
+				res = append(res, end...)
+			}
 			// Advance to the last newline character. We want to forward
 			// them all in a single call to doWrite, for performance.
 			lastNewLine := i

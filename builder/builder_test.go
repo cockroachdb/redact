@@ -146,7 +146,7 @@ func TestMixedWrites(t *testing.T) {
 		b.SafeString("\n")
 		b.WriteRune('\n')
 		actual := b.RedactableString()
-		const expected = "\nsafe\n‹›\n‹unsafe›\n\n‹›\n\n‹›\n"
+		const expected = "\nsafe\n\n‹unsafe›\n\n\n\n\n"
 		if actual != expected {
 			t.Errorf("expected:\n%q\n\ngot:\n%q", expected, actual)
 		}
