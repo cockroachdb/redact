@@ -313,6 +313,13 @@ func (b *Buffer) Grow(n int) {
 	b.buf = b.buf[:m]
 }
 
+// clone is used in tests.
+func (b *Buffer) clone() *Buffer {
+	c := *b
+	c.buf = append([]byte(nil), b.buf...)
+	return &c
+}
+
 // makeSlice allocates a slice of size n. If the allocation fails, it panics
 // with ErrTooLarge.
 func makeSlice(n int) []byte {
