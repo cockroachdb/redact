@@ -76,11 +76,11 @@ func TestBufferUnsafeWrites(t *testing.T) {
 	// Adding empty stuff to a buffer keeps it valid and empty.
 	b.WriteString("")
 	b.checkInvariants(t)
-	b.checkEqual(t, `‹›`)
+	b.checkEqual(t, ``)
 
 	b.Write(nil)
 	b.checkInvariants(t)
-	b.checkEqual(t, `‹›`)
+	b.checkEqual(t, ``)
 
 	// Simple unsafe string.
 	b.WriteString("hello")
@@ -113,11 +113,11 @@ func TestBufferUnsafeWrites(t *testing.T) {
 	// The mode switch may have added markers.
 	b.WriteString("world")
 	b.checkInvariants(t)
-	b.checkEqual(t, `‹hello›‹world›`)
+	b.checkEqual(t, `‹helloworld›`)
 
 	b.WriteString("\nuniverse")
 	b.checkInvariants(t)
-	b.checkEqual(t, `‹hello›‹world›
+	b.checkEqual(t, `‹helloworld›
 ‹universe›`)
 
 	// Newline characters as bytes or runes.
@@ -333,6 +333,27 @@ universe`)
 	b.checkEqual(t, "\344\254hello")
 }
 
+func TestBufferDelimiterElision(t *testing.T) {
+	var b Buffer
+
+	b.SetMode(SafeRaw)
+	b.WriteString("safe‹unsafe›")
+
+	b.checkInvariants(t)
+	copy := b
+	copy.checkEqual(t, `safe‹unsafe›`)
+
+	b.SetMode(UnsafeEscaped)
+	b.checkInvariants(t)
+	copy = b
+	copy.checkEqual(t, `safe‹unsafe›`)
+
+	b.WriteByte('a')
+	b.checkInvariants(t)
+	copy = b
+	copy.checkEqual(t, `safe‹unsafea›`)
+}
+
 func TestBufferRawSafeWrites(t *testing.T) {
 	var b Buffer
 
@@ -466,6 +487,16 @@ universe`)
 	b.checkEqual(t, "\344\254hello")
 }
 
+func Example_newlines() {
+	var b Buffer
+	b.SetMode(UnsafeEscaped)
+	b.WriteString("a\n")
+	fmt.Printf("%q\n", b.RedactableBytes())
+
+	// Output:
+	// "‹a›\n"
+}
+
 func Example_mixed_writes() {
 	testCases := []struct {
 		startMode, endMode OutputMode
@@ -483,9 +514,13 @@ func Example_mixed_writes() {
 		func(b *Buffer) {},
 		func(b *Buffer) { b.WriteByte('a') },
 		func(b *Buffer) { b.WriteRune('a') },
-		func(b *Buffer) { b.WriteString("hello\nworld") },
-		func(b *Buffer) { b.Write([]byte("hello\nworld")) },
+		func(b *Buffer) { b.WriteString("bc") },
+		func(b *Buffer) { b.Write([]byte("bc")) },
 		func(b *Buffer) { b.WriteString("safe‹unsafe›") },
+		func(b *Buffer) { b.WriteByte('\n') },
+		func(b *Buffer) { b.WriteRune('\n') },
+		func(b *Buffer) { b.WriteString("\nx\ny\n") },
+		func(b *Buffer) { b.Write([]byte("\nx\ny\n")) },
 	}
 
 	for i, tc := range testCases {
@@ -498,243 +533,629 @@ func Example_mixed_writes() {
 			b.SetMode(tc.startMode)
 			doWrites(&b)
 			for k, doWrites2 := range doWritesFn {
-				copy := b
+				copy := b.clone()
 				copy.SetMode(tc.endMode)
-				doWrites2(&copy)
-				fmt.Printf("fn%d+fn%d: %q\n", j, k, copy.RedactableString())
+				doWrites2(copy)
+				var b2 Buffer
+				b2.SetMode(tc.endMode)
+				doWrites2(&b2)
+				fmt.Printf("fn%d+fn%d: %q   (%q + %q)\n", j, k, copy.RedactableString(), b.RedactableString(), b2.RedactableString())
 			}
 		}
 	}
 
 	// Output:
 	// 0  ->  1
-	// fn0+fn0: ""
-	// fn0+fn1: "a"
-	// fn0+fn2: "a"
-	// fn0+fn3: "hello\nworld"
-	// fn0+fn4: "hello\nworld"
-	// fn0+fn5: "safe?unsafe?"
-	// fn1+fn0: "‹a›"
-	// fn1+fn1: "‹a›a"
-	// fn1+fn2: "‹a›a"
-	// fn1+fn3: "‹a›hello\nworld"
-	// fn1+fn4: "‹a›hello\nworld"
-	// fn1+fn5: "‹a›safe?unsafe?"
-	// fn2+fn0: "‹a›"
-	// fn2+fn1: "‹a›a"
-	// fn2+fn2: "‹a›a"
-	// fn2+fn3: "‹a›hello\nworld"
-	// fn2+fn4: "‹a›hello\nworld"
-	// fn2+fn5: "‹a›safe?unsafe?"
-	// fn3+fn0: "‹hello›\n‹world›"
-	// fn3+fn1: "‹hello›\n‹world›a"
-	// fn3+fn2: "‹hello›\n‹world›a"
-	// fn3+fn3: "‹hello›\n‹world›hello\nworld"
-	// fn3+fn4: "‹hello›\n‹world›hello\nworld"
-	// fn3+fn5: "‹hello›\n‹world›safe?unsafe?"
-	// fn4+fn0: "‹hello›\n‹world›"
-	// fn4+fn1: "‹hello›\n‹world›a"
-	// fn4+fn2: "‹hello›\n‹world›a"
-	// fn4+fn3: "‹hello›\n‹world›hello\nworld"
-	// fn4+fn4: "‹hello›\n‹world›hello\nworld"
-	// fn4+fn5: "‹hello›\n‹world›safe?unsafe?"
-	// fn5+fn0: "‹safe?unsafe?›"
-	// fn5+fn1: "‹safe?unsafe?›a"
-	// fn5+fn2: "‹safe?unsafe?›a"
-	// fn5+fn3: "‹safe?unsafe?›hello\nworld"
-	// fn5+fn4: "‹safe?unsafe?›hello\nworld"
-	// fn5+fn5: "‹safe?unsafe?›safe?unsafe?"
+	// fn0+fn0: ""   ("" + "")
+	// fn0+fn1: "a"   ("" + "a")
+	// fn0+fn2: "a"   ("" + "a")
+	// fn0+fn3: "bc"   ("" + "bc")
+	// fn0+fn4: "bc"   ("" + "bc")
+	// fn0+fn5: "safe?unsafe?"   ("" + "safe?unsafe?")
+	// fn0+fn6: "\n"   ("" + "\n")
+	// fn0+fn7: "\n"   ("" + "\n")
+	// fn0+fn8: "\nx\ny\n"   ("" + "\nx\ny\n")
+	// fn0+fn9: "\nx\ny\n"   ("" + "\nx\ny\n")
+	// fn1+fn0: "‹a›"   ("‹a›" + "")
+	// fn1+fn1: "‹a›a"   ("‹a›" + "a")
+	// fn1+fn2: "‹a›a"   ("‹a›" + "a")
+	// fn1+fn3: "‹a›bc"   ("‹a›" + "bc")
+	// fn1+fn4: "‹a›bc"   ("‹a›" + "bc")
+	// fn1+fn5: "‹a›safe?unsafe?"   ("‹a›" + "safe?unsafe?")
+	// fn1+fn6: "‹a›\n"   ("‹a›" + "\n")
+	// fn1+fn7: "‹a›\n"   ("‹a›" + "\n")
+	// fn1+fn8: "‹a›\nx\ny\n"   ("‹a›" + "\nx\ny\n")
+	// fn1+fn9: "‹a›\nx\ny\n"   ("‹a›" + "\nx\ny\n")
+	// fn2+fn0: "‹a›"   ("‹a›" + "")
+	// fn2+fn1: "‹a›a"   ("‹a›" + "a")
+	// fn2+fn2: "‹a›a"   ("‹a›" + "a")
+	// fn2+fn3: "‹a›bc"   ("‹a›" + "bc")
+	// fn2+fn4: "‹a›bc"   ("‹a›" + "bc")
+	// fn2+fn5: "‹a›safe?unsafe?"   ("‹a›" + "safe?unsafe?")
+	// fn2+fn6: "‹a›\n"   ("‹a›" + "\n")
+	// fn2+fn7: "‹a›\n"   ("‹a›" + "\n")
+	// fn2+fn8: "‹a›\nx\ny\n"   ("‹a›" + "\nx\ny\n")
+	// fn2+fn9: "‹a›\nx\ny\n"   ("‹a›" + "\nx\ny\n")
+	// fn3+fn0: "‹bc›"   ("‹bc›" + "")
+	// fn3+fn1: "‹bc›a"   ("‹bc›" + "a")
+	// fn3+fn2: "‹bc›a"   ("‹bc›" + "a")
+	// fn3+fn3: "‹bc›bc"   ("‹bc›" + "bc")
+	// fn3+fn4: "‹bc›bc"   ("‹bc›" + "bc")
+	// fn3+fn5: "‹bc›safe?unsafe?"   ("‹bc›" + "safe?unsafe?")
+	// fn3+fn6: "‹bc›\n"   ("‹bc›" + "\n")
+	// fn3+fn7: "‹bc›\n"   ("‹bc›" + "\n")
+	// fn3+fn8: "‹bc›\nx\ny\n"   ("‹bc›" + "\nx\ny\n")
+	// fn3+fn9: "‹bc›\nx\ny\n"   ("‹bc›" + "\nx\ny\n")
+	// fn4+fn0: "‹bc›"   ("‹bc›" + "")
+	// fn4+fn1: "‹bc›a"   ("‹bc›" + "a")
+	// fn4+fn2: "‹bc›a"   ("‹bc›" + "a")
+	// fn4+fn3: "‹bc›bc"   ("‹bc›" + "bc")
+	// fn4+fn4: "‹bc›bc"   ("‹bc›" + "bc")
+	// fn4+fn5: "‹bc›safe?unsafe?"   ("‹bc›" + "safe?unsafe?")
+	// fn4+fn6: "‹bc›\n"   ("‹bc›" + "\n")
+	// fn4+fn7: "‹bc›\n"   ("‹bc›" + "\n")
+	// fn4+fn8: "‹bc›\nx\ny\n"   ("‹bc›" + "\nx\ny\n")
+	// fn4+fn9: "‹bc›\nx\ny\n"   ("‹bc›" + "\nx\ny\n")
+	// fn5+fn0: "‹safe?unsafe?›"   ("‹safe?unsafe?›" + "")
+	// fn5+fn1: "‹safe?unsafe?›a"   ("‹safe?unsafe?›" + "a")
+	// fn5+fn2: "‹safe?unsafe?›a"   ("‹safe?unsafe?›" + "a")
+	// fn5+fn3: "‹safe?unsafe?›bc"   ("‹safe?unsafe?›" + "bc")
+	// fn5+fn4: "‹safe?unsafe?›bc"   ("‹safe?unsafe?›" + "bc")
+	// fn5+fn5: "‹safe?unsafe?›safe?unsafe?"   ("‹safe?unsafe?›" + "safe?unsafe?")
+	// fn5+fn6: "‹safe?unsafe?›\n"   ("‹safe?unsafe?›" + "\n")
+	// fn5+fn7: "‹safe?unsafe?›\n"   ("‹safe?unsafe?›" + "\n")
+	// fn5+fn8: "‹safe?unsafe?›\nx\ny\n"   ("‹safe?unsafe?›" + "\nx\ny\n")
+	// fn5+fn9: "‹safe?unsafe?›\nx\ny\n"   ("‹safe?unsafe?›" + "\nx\ny\n")
+	// fn6+fn0: "\n"   ("\n" + "")
+	// fn6+fn1: "\na"   ("\n" + "a")
+	// fn6+fn2: "\na"   ("\n" + "a")
+	// fn6+fn3: "\nbc"   ("\n" + "bc")
+	// fn6+fn4: "\nbc"   ("\n" + "bc")
+	// fn6+fn5: "\nsafe?unsafe?"   ("\n" + "safe?unsafe?")
+	// fn6+fn6: "\n\n"   ("\n" + "\n")
+	// fn6+fn7: "\n\n"   ("\n" + "\n")
+	// fn6+fn8: "\n\nx\ny\n"   ("\n" + "\nx\ny\n")
+	// fn6+fn9: "\n\nx\ny\n"   ("\n" + "\nx\ny\n")
+	// fn7+fn0: "\n"   ("\n" + "")
+	// fn7+fn1: "\na"   ("\n" + "a")
+	// fn7+fn2: "\na"   ("\n" + "a")
+	// fn7+fn3: "\nbc"   ("\n" + "bc")
+	// fn7+fn4: "\nbc"   ("\n" + "bc")
+	// fn7+fn5: "\nsafe?unsafe?"   ("\n" + "safe?unsafe?")
+	// fn7+fn6: "\n\n"   ("\n" + "\n")
+	// fn7+fn7: "\n\n"   ("\n" + "\n")
+	// fn7+fn8: "\n\nx\ny\n"   ("\n" + "\nx\ny\n")
+	// fn7+fn9: "\n\nx\ny\n"   ("\n" + "\nx\ny\n")
+	// fn8+fn0: "\n‹x›\n‹y›\n"   ("\n‹x›\n‹y›\n" + "")
+	// fn8+fn1: "\n‹x›\n‹y›\na"   ("\n‹x›\n‹y›\n" + "a")
+	// fn8+fn2: "\n‹x›\n‹y›\na"   ("\n‹x›\n‹y›\n" + "a")
+	// fn8+fn3: "\n‹x›\n‹y›\nbc"   ("\n‹x›\n‹y›\n" + "bc")
+	// fn8+fn4: "\n‹x›\n‹y›\nbc"   ("\n‹x›\n‹y›\n" + "bc")
+	// fn8+fn5: "\n‹x›\n‹y›\nsafe?unsafe?"   ("\n‹x›\n‹y›\n" + "safe?unsafe?")
+	// fn8+fn6: "\n‹x›\n‹y›\n\n"   ("\n‹x›\n‹y›\n" + "\n")
+	// fn8+fn7: "\n‹x›\n‹y›\n\n"   ("\n‹x›\n‹y›\n" + "\n")
+	// fn8+fn8: "\n‹x›\n‹y›\n\nx\ny\n"   ("\n‹x›\n‹y›\n" + "\nx\ny\n")
+	// fn8+fn9: "\n‹x›\n‹y›\n\nx\ny\n"   ("\n‹x›\n‹y›\n" + "\nx\ny\n")
+	// fn9+fn0: "\n‹x›\n‹y›\n"   ("\n‹x›\n‹y›\n" + "")
+	// fn9+fn1: "\n‹x›\n‹y›\na"   ("\n‹x›\n‹y›\n" + "a")
+	// fn9+fn2: "\n‹x›\n‹y›\na"   ("\n‹x›\n‹y›\n" + "a")
+	// fn9+fn3: "\n‹x›\n‹y›\nbc"   ("\n‹x›\n‹y›\n" + "bc")
+	// fn9+fn4: "\n‹x›\n‹y›\nbc"   ("\n‹x›\n‹y›\n" + "bc")
+	// fn9+fn5: "\n‹x›\n‹y›\nsafe?unsafe?"   ("\n‹x›\n‹y›\n" + "safe?unsafe?")
+	// fn9+fn6: "\n‹x›\n‹y›\n\n"   ("\n‹x›\n‹y›\n" + "\n")
+	// fn9+fn7: "\n‹x›\n‹y›\n\n"   ("\n‹x›\n‹y›\n" + "\n")
+	// fn9+fn8: "\n‹x›\n‹y›\n\nx\ny\n"   ("\n‹x›\n‹y›\n" + "\nx\ny\n")
+	// fn9+fn9: "\n‹x›\n‹y›\n\nx\ny\n"   ("\n‹x›\n‹y›\n" + "\nx\ny\n")
 	//
 	// 1  ->  0
-	// fn0+fn0: ""
-	// fn0+fn1: "‹a›"
-	// fn0+fn2: "‹a›"
-	// fn0+fn3: "‹hello›\n‹world›"
-	// fn0+fn4: "‹hello›\n‹world›"
-	// fn0+fn5: "‹safe?unsafe?›"
-	// fn1+fn0: "a"
-	// fn1+fn1: "a‹a›"
-	// fn1+fn2: "a‹a›"
-	// fn1+fn3: "a‹hello›\n‹world›"
-	// fn1+fn4: "a‹hello›\n‹world›"
-	// fn1+fn5: "a‹safe?unsafe?›"
-	// fn2+fn0: "a"
-	// fn2+fn1: "a‹a›"
-	// fn2+fn2: "a‹a›"
-	// fn2+fn3: "a‹hello›\n‹world›"
-	// fn2+fn4: "a‹hello›\n‹world›"
-	// fn2+fn5: "a‹safe?unsafe?›"
-	// fn3+fn0: "hello\nworld"
-	// fn3+fn1: "hello\nworld‹a›"
-	// fn3+fn2: "hello\nworld‹a›"
-	// fn3+fn3: "hello\nworld‹hello›\n‹world›"
-	// fn3+fn4: "hello\nworld‹hello›\n‹world›"
-	// fn3+fn5: "hello\nworld‹safe?unsafe?›"
-	// fn4+fn0: "hello\nworld"
-	// fn4+fn1: "hello\nworld‹a›"
-	// fn4+fn2: "hello\nworld‹a›"
-	// fn4+fn3: "hello\nworld‹hello›\n‹world›"
-	// fn4+fn4: "hello\nworld‹hello›\n‹world›"
-	// fn4+fn5: "hello\nworld‹safe?unsafe?›"
-	// fn5+fn0: "safe?unsafe?"
-	// fn5+fn1: "safe?unsafe?‹a›"
-	// fn5+fn2: "safe?unsafe?‹a›"
-	// fn5+fn3: "safe?unsafe?‹hello›\n‹world›"
-	// fn5+fn4: "safe?unsafe?‹hello›\n‹world›"
-	// fn5+fn5: "safe?unsafe?‹safe?unsafe?›"
+	// fn0+fn0: ""   ("" + "")
+	// fn0+fn1: "‹a›"   ("" + "‹a›")
+	// fn0+fn2: "‹a›"   ("" + "‹a›")
+	// fn0+fn3: "‹bc›"   ("" + "‹bc›")
+	// fn0+fn4: "‹bc›"   ("" + "‹bc›")
+	// fn0+fn5: "‹safe?unsafe?›"   ("" + "‹safe?unsafe?›")
+	// fn0+fn6: "\n"   ("" + "\n")
+	// fn0+fn7: "\n"   ("" + "\n")
+	// fn0+fn8: "\n‹x›\n‹y›\n"   ("" + "\n‹x›\n‹y›\n")
+	// fn0+fn9: "\n‹x›\n‹y›\n"   ("" + "\n‹x›\n‹y›\n")
+	// fn1+fn0: "a"   ("a" + "")
+	// fn1+fn1: "a‹a›"   ("a" + "‹a›")
+	// fn1+fn2: "a‹a›"   ("a" + "‹a›")
+	// fn1+fn3: "a‹bc›"   ("a" + "‹bc›")
+	// fn1+fn4: "a‹bc›"   ("a" + "‹bc›")
+	// fn1+fn5: "a‹safe?unsafe?›"   ("a" + "‹safe?unsafe?›")
+	// fn1+fn6: "a\n"   ("a" + "\n")
+	// fn1+fn7: "a\n"   ("a" + "\n")
+	// fn1+fn8: "a\n‹x›\n‹y›\n"   ("a" + "\n‹x›\n‹y›\n")
+	// fn1+fn9: "a\n‹x›\n‹y›\n"   ("a" + "\n‹x›\n‹y›\n")
+	// fn2+fn0: "a"   ("a" + "")
+	// fn2+fn1: "a‹a›"   ("a" + "‹a›")
+	// fn2+fn2: "a‹a›"   ("a" + "‹a›")
+	// fn2+fn3: "a‹bc›"   ("a" + "‹bc›")
+	// fn2+fn4: "a‹bc›"   ("a" + "‹bc›")
+	// fn2+fn5: "a‹safe?unsafe?›"   ("a" + "‹safe?unsafe?›")
+	// fn2+fn6: "a\n"   ("a" + "\n")
+	// fn2+fn7: "a\n"   ("a" + "\n")
+	// fn2+fn8: "a\n‹x›\n‹y›\n"   ("a" + "\n‹x›\n‹y›\n")
+	// fn2+fn9: "a\n‹x›\n‹y›\n"   ("a" + "\n‹x›\n‹y›\n")
+	// fn3+fn0: "bc"   ("bc" + "")
+	// fn3+fn1: "bc‹a›"   ("bc" + "‹a›")
+	// fn3+fn2: "bc‹a›"   ("bc" + "‹a›")
+	// fn3+fn3: "bc‹bc›"   ("bc" + "‹bc›")
+	// fn3+fn4: "bc‹bc›"   ("bc" + "‹bc›")
+	// fn3+fn5: "bc‹safe?unsafe?›"   ("bc" + "‹safe?unsafe?›")
+	// fn3+fn6: "bc\n"   ("bc" + "\n")
+	// fn3+fn7: "bc\n"   ("bc" + "\n")
+	// fn3+fn8: "bc\n‹x›\n‹y›\n"   ("bc" + "\n‹x›\n‹y›\n")
+	// fn3+fn9: "bc\n‹x›\n‹y›\n"   ("bc" + "\n‹x›\n‹y›\n")
+	// fn4+fn0: "bc"   ("bc" + "")
+	// fn4+fn1: "bc‹a›"   ("bc" + "‹a›")
+	// fn4+fn2: "bc‹a›"   ("bc" + "‹a›")
+	// fn4+fn3: "bc‹bc›"   ("bc" + "‹bc›")
+	// fn4+fn4: "bc‹bc›"   ("bc" + "‹bc›")
+	// fn4+fn5: "bc‹safe?unsafe?›"   ("bc" + "‹safe?unsafe?›")
+	// fn4+fn6: "bc\n"   ("bc" + "\n")
+	// fn4+fn7: "bc\n"   ("bc" + "\n")
+	// fn4+fn8: "bc\n‹x›\n‹y›\n"   ("bc" + "\n‹x›\n‹y›\n")
+	// fn4+fn9: "bc\n‹x›\n‹y›\n"   ("bc" + "\n‹x›\n‹y›\n")
+	// fn5+fn0: "safe?unsafe?"   ("safe?unsafe?" + "")
+	// fn5+fn1: "safe?unsafe?‹a›"   ("safe?unsafe?" + "‹a›")
+	// fn5+fn2: "safe?unsafe?‹a›"   ("safe?unsafe?" + "‹a›")
+	// fn5+fn3: "safe?unsafe?‹bc›"   ("safe?unsafe?" + "‹bc›")
+	// fn5+fn4: "safe?unsafe?‹bc›"   ("safe?unsafe?" + "‹bc›")
+	// fn5+fn5: "safe?unsafe?‹safe?unsafe?›"   ("safe?unsafe?" + "‹safe?unsafe?›")
+	// fn5+fn6: "safe?unsafe?\n"   ("safe?unsafe?" + "\n")
+	// fn5+fn7: "safe?unsafe?\n"   ("safe?unsafe?" + "\n")
+	// fn5+fn8: "safe?unsafe?\n‹x›\n‹y›\n"   ("safe?unsafe?" + "\n‹x›\n‹y›\n")
+	// fn5+fn9: "safe?unsafe?\n‹x›\n‹y›\n"   ("safe?unsafe?" + "\n‹x›\n‹y›\n")
+	// fn6+fn0: "\n"   ("\n" + "")
+	// fn6+fn1: "\n‹a›"   ("\n" + "‹a›")
+	// fn6+fn2: "\n‹a›"   ("\n" + "‹a›")
+	// fn6+fn3: "\n‹bc›"   ("\n" + "‹bc›")
+	// fn6+fn4: "\n‹bc›"   ("\n" + "‹bc›")
+	// fn6+fn5: "\n‹safe?unsafe?›"   ("\n" + "‹safe?unsafe?›")
+	// fn6+fn6: "\n\n"   ("\n" + "\n")
+	// fn6+fn7: "\n\n"   ("\n" + "\n")
+	// fn6+fn8: "\n\n‹x›\n‹y›\n"   ("\n" + "\n‹x›\n‹y›\n")
+	// fn6+fn9: "\n\n‹x›\n‹y›\n"   ("\n" + "\n‹x›\n‹y›\n")
+	// fn7+fn0: "\n"   ("\n" + "")
+	// fn7+fn1: "\n‹a›"   ("\n" + "‹a›")
+	// fn7+fn2: "\n‹a›"   ("\n" + "‹a›")
+	// fn7+fn3: "\n‹bc›"   ("\n" + "‹bc›")
+	// fn7+fn4: "\n‹bc›"   ("\n" + "‹bc›")
+	// fn7+fn5: "\n‹safe?unsafe?›"   ("\n" + "‹safe?unsafe?›")
+	// fn7+fn6: "\n\n"   ("\n" + "\n")
+	// fn7+fn7: "\n\n"   ("\n" + "\n")
+	// fn7+fn8: "\n\n‹x›\n‹y›\n"   ("\n" + "\n‹x›\n‹y›\n")
+	// fn7+fn9: "\n\n‹x›\n‹y›\n"   ("\n" + "\n‹x›\n‹y›\n")
+	// fn8+fn0: "\nx\ny\n"   ("\nx\ny\n" + "")
+	// fn8+fn1: "\nx\ny\n‹a›"   ("\nx\ny\n" + "‹a›")
+	// fn8+fn2: "\nx\ny\n‹a›"   ("\nx\ny\n" + "‹a›")
+	// fn8+fn3: "\nx\ny\n‹bc›"   ("\nx\ny\n" + "‹bc›")
+	// fn8+fn4: "\nx\ny\n‹bc›"   ("\nx\ny\n" + "‹bc›")
+	// fn8+fn5: "\nx\ny\n‹safe?unsafe?›"   ("\nx\ny\n" + "‹safe?unsafe?›")
+	// fn8+fn6: "\nx\ny\n\n"   ("\nx\ny\n" + "\n")
+	// fn8+fn7: "\nx\ny\n\n"   ("\nx\ny\n" + "\n")
+	// fn8+fn8: "\nx\ny\n\n‹x›\n‹y›\n"   ("\nx\ny\n" + "\n‹x›\n‹y›\n")
+	// fn8+fn9: "\nx\ny\n\n‹x›\n‹y›\n"   ("\nx\ny\n" + "\n‹x›\n‹y›\n")
+	// fn9+fn0: "\nx\ny\n"   ("\nx\ny\n" + "")
+	// fn9+fn1: "\nx\ny\n‹a›"   ("\nx\ny\n" + "‹a›")
+	// fn9+fn2: "\nx\ny\n‹a›"   ("\nx\ny\n" + "‹a›")
+	// fn9+fn3: "\nx\ny\n‹bc›"   ("\nx\ny\n" + "‹bc›")
+	// fn9+fn4: "\nx\ny\n‹bc›"   ("\nx\ny\n" + "‹bc›")
+	// fn9+fn5: "\nx\ny\n‹safe?unsafe?›"   ("\nx\ny\n" + "‹safe?unsafe?›")
+	// fn9+fn6: "\nx\ny\n\n"   ("\nx\ny\n" + "\n")
+	// fn9+fn7: "\nx\ny\n\n"   ("\nx\ny\n" + "\n")
+	// fn9+fn8: "\nx\ny\n\n‹x›\n‹y›\n"   ("\nx\ny\n" + "\n‹x›\n‹y›\n")
+	// fn9+fn9: "\nx\ny\n\n‹x›\n‹y›\n"   ("\nx\ny\n" + "\n‹x›\n‹y›\n")
 	//
 	// 0  ->  2
-	// fn0+fn0: ""
-	// fn0+fn1: "a"
-	// fn0+fn2: "a"
-	// fn0+fn3: "hello\nworld"
-	// fn0+fn4: "hello\nworld"
-	// fn0+fn5: "safe‹unsafe›"
-	// fn1+fn0: "‹a›"
-	// fn1+fn1: "‹a›a"
-	// fn1+fn2: "‹a›a"
-	// fn1+fn3: "‹a›hello\nworld"
-	// fn1+fn4: "‹a›hello\nworld"
-	// fn1+fn5: "‹a›safe‹unsafe›"
-	// fn2+fn0: "‹a›"
-	// fn2+fn1: "‹a›a"
-	// fn2+fn2: "‹a›a"
-	// fn2+fn3: "‹a›hello\nworld"
-	// fn2+fn4: "‹a›hello\nworld"
-	// fn2+fn5: "‹a›safe‹unsafe›"
-	// fn3+fn0: "‹hello›\n‹world›"
-	// fn3+fn1: "‹hello›\n‹world›a"
-	// fn3+fn2: "‹hello›\n‹world›a"
-	// fn3+fn3: "‹hello›\n‹world›hello\nworld"
-	// fn3+fn4: "‹hello›\n‹world›hello\nworld"
-	// fn3+fn5: "‹hello›\n‹world›safe‹unsafe›"
-	// fn4+fn0: "‹hello›\n‹world›"
-	// fn4+fn1: "‹hello›\n‹world›a"
-	// fn4+fn2: "‹hello›\n‹world›a"
-	// fn4+fn3: "‹hello›\n‹world›hello\nworld"
-	// fn4+fn4: "‹hello›\n‹world›hello\nworld"
-	// fn4+fn5: "‹hello›\n‹world›safe‹unsafe›"
-	// fn5+fn0: "‹safe?unsafe?›"
-	// fn5+fn1: "‹safe?unsafe?›a"
-	// fn5+fn2: "‹safe?unsafe?›a"
-	// fn5+fn3: "‹safe?unsafe?›hello\nworld"
-	// fn5+fn4: "‹safe?unsafe?›hello\nworld"
-	// fn5+fn5: "‹safe?unsafe?›safe‹unsafe›"
+	// fn0+fn0: ""   ("" + "")
+	// fn0+fn1: "a"   ("" + "a")
+	// fn0+fn2: "a"   ("" + "a")
+	// fn0+fn3: "bc"   ("" + "bc")
+	// fn0+fn4: "bc"   ("" + "bc")
+	// fn0+fn5: "safe‹unsafe›"   ("" + "safe‹unsafe›")
+	// fn0+fn6: "\n"   ("" + "\n")
+	// fn0+fn7: "\n"   ("" + "\n")
+	// fn0+fn8: "\nx\ny\n"   ("" + "\nx\ny\n")
+	// fn0+fn9: "\nx\ny\n"   ("" + "\nx\ny\n")
+	// fn1+fn0: "‹a›"   ("‹a›" + "")
+	// fn1+fn1: "‹a›a"   ("‹a›" + "a")
+	// fn1+fn2: "‹a›a"   ("‹a›" + "a")
+	// fn1+fn3: "‹a›bc"   ("‹a›" + "bc")
+	// fn1+fn4: "‹a›bc"   ("‹a›" + "bc")
+	// fn1+fn5: "‹a›safe‹unsafe›"   ("‹a›" + "safe‹unsafe›")
+	// fn1+fn6: "‹a›\n"   ("‹a›" + "\n")
+	// fn1+fn7: "‹a›\n"   ("‹a›" + "\n")
+	// fn1+fn8: "‹a›\nx\ny\n"   ("‹a›" + "\nx\ny\n")
+	// fn1+fn9: "‹a›\nx\ny\n"   ("‹a›" + "\nx\ny\n")
+	// fn2+fn0: "‹a›"   ("‹a›" + "")
+	// fn2+fn1: "‹a›a"   ("‹a›" + "a")
+	// fn2+fn2: "‹a›a"   ("‹a›" + "a")
+	// fn2+fn3: "‹a›bc"   ("‹a›" + "bc")
+	// fn2+fn4: "‹a›bc"   ("‹a›" + "bc")
+	// fn2+fn5: "‹a›safe‹unsafe›"   ("‹a›" + "safe‹unsafe›")
+	// fn2+fn6: "‹a›\n"   ("‹a›" + "\n")
+	// fn2+fn7: "‹a›\n"   ("‹a›" + "\n")
+	// fn2+fn8: "‹a›\nx\ny\n"   ("‹a›" + "\nx\ny\n")
+	// fn2+fn9: "‹a›\nx\ny\n"   ("‹a›" + "\nx\ny\n")
+	// fn3+fn0: "‹bc›"   ("‹bc›" + "")
+	// fn3+fn1: "‹bc›a"   ("‹bc›" + "a")
+	// fn3+fn2: "‹bc›a"   ("‹bc›" + "a")
+	// fn3+fn3: "‹bc›bc"   ("‹bc›" + "bc")
+	// fn3+fn4: "‹bc›bc"   ("‹bc›" + "bc")
+	// fn3+fn5: "‹bc›safe‹unsafe›"   ("‹bc›" + "safe‹unsafe›")
+	// fn3+fn6: "‹bc›\n"   ("‹bc›" + "\n")
+	// fn3+fn7: "‹bc›\n"   ("‹bc›" + "\n")
+	// fn3+fn8: "‹bc›\nx\ny\n"   ("‹bc›" + "\nx\ny\n")
+	// fn3+fn9: "‹bc›\nx\ny\n"   ("‹bc›" + "\nx\ny\n")
+	// fn4+fn0: "‹bc›"   ("‹bc›" + "")
+	// fn4+fn1: "‹bc›a"   ("‹bc›" + "a")
+	// fn4+fn2: "‹bc›a"   ("‹bc›" + "a")
+	// fn4+fn3: "‹bc›bc"   ("‹bc›" + "bc")
+	// fn4+fn4: "‹bc›bc"   ("‹bc›" + "bc")
+	// fn4+fn5: "‹bc›safe‹unsafe›"   ("‹bc›" + "safe‹unsafe›")
+	// fn4+fn6: "‹bc›\n"   ("‹bc›" + "\n")
+	// fn4+fn7: "‹bc›\n"   ("‹bc›" + "\n")
+	// fn4+fn8: "‹bc›\nx\ny\n"   ("‹bc›" + "\nx\ny\n")
+	// fn4+fn9: "‹bc›\nx\ny\n"   ("‹bc›" + "\nx\ny\n")
+	// fn5+fn0: "‹safe?unsafe?›"   ("‹safe?unsafe?›" + "")
+	// fn5+fn1: "‹safe?unsafe?›a"   ("‹safe?unsafe?›" + "a")
+	// fn5+fn2: "‹safe?unsafe?›a"   ("‹safe?unsafe?›" + "a")
+	// fn5+fn3: "‹safe?unsafe?›bc"   ("‹safe?unsafe?›" + "bc")
+	// fn5+fn4: "‹safe?unsafe?›bc"   ("‹safe?unsafe?›" + "bc")
+	// fn5+fn5: "‹safe?unsafe?›safe‹unsafe›"   ("‹safe?unsafe?›" + "safe‹unsafe›")
+	// fn5+fn6: "‹safe?unsafe?›\n"   ("‹safe?unsafe?›" + "\n")
+	// fn5+fn7: "‹safe?unsafe?›\n"   ("‹safe?unsafe?›" + "\n")
+	// fn5+fn8: "‹safe?unsafe?›\nx\ny\n"   ("‹safe?unsafe?›" + "\nx\ny\n")
+	// fn5+fn9: "‹safe?unsafe?›\nx\ny\n"   ("‹safe?unsafe?›" + "\nx\ny\n")
+	// fn6+fn0: "\n"   ("\n" + "")
+	// fn6+fn1: "\na"   ("\n" + "a")
+	// fn6+fn2: "\na"   ("\n" + "a")
+	// fn6+fn3: "\nbc"   ("\n" + "bc")
+	// fn6+fn4: "\nbc"   ("\n" + "bc")
+	// fn6+fn5: "\nsafe‹unsafe›"   ("\n" + "safe‹unsafe›")
+	// fn6+fn6: "\n\n"   ("\n" + "\n")
+	// fn6+fn7: "\n\n"   ("\n" + "\n")
+	// fn6+fn8: "\n\nx\ny\n"   ("\n" + "\nx\ny\n")
+	// fn6+fn9: "\n\nx\ny\n"   ("\n" + "\nx\ny\n")
+	// fn7+fn0: "\n"   ("\n" + "")
+	// fn7+fn1: "\na"   ("\n" + "a")
+	// fn7+fn2: "\na"   ("\n" + "a")
+	// fn7+fn3: "\nbc"   ("\n" + "bc")
+	// fn7+fn4: "\nbc"   ("\n" + "bc")
+	// fn7+fn5: "\nsafe‹unsafe›"   ("\n" + "safe‹unsafe›")
+	// fn7+fn6: "\n\n"   ("\n" + "\n")
+	// fn7+fn7: "\n\n"   ("\n" + "\n")
+	// fn7+fn8: "\n\nx\ny\n"   ("\n" + "\nx\ny\n")
+	// fn7+fn9: "\n\nx\ny\n"   ("\n" + "\nx\ny\n")
+	// fn8+fn0: "\n‹x›\n‹y›\n"   ("\n‹x›\n‹y›\n" + "")
+	// fn8+fn1: "\n‹x›\n‹y›\na"   ("\n‹x›\n‹y›\n" + "a")
+	// fn8+fn2: "\n‹x›\n‹y›\na"   ("\n‹x›\n‹y›\n" + "a")
+	// fn8+fn3: "\n‹x›\n‹y›\nbc"   ("\n‹x›\n‹y›\n" + "bc")
+	// fn8+fn4: "\n‹x›\n‹y›\nbc"   ("\n‹x›\n‹y›\n" + "bc")
+	// fn8+fn5: "\n‹x›\n‹y›\nsafe‹unsafe›"   ("\n‹x›\n‹y›\n" + "safe‹unsafe›")
+	// fn8+fn6: "\n‹x›\n‹y›\n\n"   ("\n‹x›\n‹y›\n" + "\n")
+	// fn8+fn7: "\n‹x›\n‹y›\n\n"   ("\n‹x›\n‹y›\n" + "\n")
+	// fn8+fn8: "\n‹x›\n‹y›\n\nx\ny\n"   ("\n‹x›\n‹y›\n" + "\nx\ny\n")
+	// fn8+fn9: "\n‹x›\n‹y›\n\nx\ny\n"   ("\n‹x›\n‹y›\n" + "\nx\ny\n")
+	// fn9+fn0: "\n‹x›\n‹y›\n"   ("\n‹x›\n‹y›\n" + "")
+	// fn9+fn1: "\n‹x›\n‹y›\na"   ("\n‹x›\n‹y›\n" + "a")
+	// fn9+fn2: "\n‹x›\n‹y›\na"   ("\n‹x›\n‹y›\n" + "a")
+	// fn9+fn3: "\n‹x›\n‹y›\nbc"   ("\n‹x›\n‹y›\n" + "bc")
+	// fn9+fn4: "\n‹x›\n‹y›\nbc"   ("\n‹x›\n‹y›\n" + "bc")
+	// fn9+fn5: "\n‹x›\n‹y›\nsafe‹unsafe›"   ("\n‹x›\n‹y›\n" + "safe‹unsafe›")
+	// fn9+fn6: "\n‹x›\n‹y›\n\n"   ("\n‹x›\n‹y›\n" + "\n")
+	// fn9+fn7: "\n‹x›\n‹y›\n\n"   ("\n‹x›\n‹y›\n" + "\n")
+	// fn9+fn8: "\n‹x›\n‹y›\n\nx\ny\n"   ("\n‹x›\n‹y›\n" + "\nx\ny\n")
+	// fn9+fn9: "\n‹x›\n‹y›\n\nx\ny\n"   ("\n‹x›\n‹y›\n" + "\nx\ny\n")
 	//
 	// 2  ->  0
-	// fn0+fn0: ""
-	// fn0+fn1: "‹a›"
-	// fn0+fn2: "‹a›"
-	// fn0+fn3: "‹hello›\n‹world›"
-	// fn0+fn4: "‹hello›\n‹world›"
-	// fn0+fn5: "‹safe?unsafe?›"
-	// fn1+fn0: "a"
-	// fn1+fn1: "a‹a›"
-	// fn1+fn2: "a‹a›"
-	// fn1+fn3: "a‹hello›\n‹world›"
-	// fn1+fn4: "a‹hello›\n‹world›"
-	// fn1+fn5: "a‹safe?unsafe?›"
-	// fn2+fn0: "a"
-	// fn2+fn1: "a‹a›"
-	// fn2+fn2: "a‹a›"
-	// fn2+fn3: "a‹hello›\n‹world›"
-	// fn2+fn4: "a‹hello›\n‹world›"
-	// fn2+fn5: "a‹safe?unsafe?›"
-	// fn3+fn0: "hello\nworld"
-	// fn3+fn1: "hello\nworld‹a›"
-	// fn3+fn2: "hello\nworld‹a›"
-	// fn3+fn3: "hello\nworld‹hello›\n‹world›"
-	// fn3+fn4: "hello\nworld‹hello›\n‹world›"
-	// fn3+fn5: "hello\nworld‹safe?unsafe?›"
-	// fn4+fn0: "hello\nworld"
-	// fn4+fn1: "hello\nworld‹a›"
-	// fn4+fn2: "hello\nworld‹a›"
-	// fn4+fn3: "hello\nworld‹hello›\n‹world›"
-	// fn4+fn4: "hello\nworld‹hello›\n‹world›"
-	// fn4+fn5: "hello\nworld‹safe?unsafe?›"
-	// fn5+fn0: "safe‹unsafe›"
-	// fn5+fn1: "safe‹unsafe›‹a›"
-	// fn5+fn2: "safe‹unsafe›‹a›"
-	// fn5+fn3: "safe‹unsafe›‹hello›\n‹world›"
-	// fn5+fn4: "safe‹unsafe›‹hello›\n‹world›"
-	// fn5+fn5: "safe‹unsafe›‹safe?unsafe?›"
+	// fn0+fn0: ""   ("" + "")
+	// fn0+fn1: "‹a›"   ("" + "‹a›")
+	// fn0+fn2: "‹a›"   ("" + "‹a›")
+	// fn0+fn3: "‹bc›"   ("" + "‹bc›")
+	// fn0+fn4: "‹bc›"   ("" + "‹bc›")
+	// fn0+fn5: "‹safe?unsafe?›"   ("" + "‹safe?unsafe?›")
+	// fn0+fn6: "\n"   ("" + "\n")
+	// fn0+fn7: "\n"   ("" + "\n")
+	// fn0+fn8: "\n‹x›\n‹y›\n"   ("" + "\n‹x›\n‹y›\n")
+	// fn0+fn9: "\n‹x›\n‹y›\n"   ("" + "\n‹x›\n‹y›\n")
+	// fn1+fn0: "a"   ("a" + "")
+	// fn1+fn1: "a‹a›"   ("a" + "‹a›")
+	// fn1+fn2: "a‹a›"   ("a" + "‹a›")
+	// fn1+fn3: "a‹bc›"   ("a" + "‹bc›")
+	// fn1+fn4: "a‹bc›"   ("a" + "‹bc›")
+	// fn1+fn5: "a‹safe?unsafe?›"   ("a" + "‹safe?unsafe?›")
+	// fn1+fn6: "a\n"   ("a" + "\n")
+	// fn1+fn7: "a\n"   ("a" + "\n")
+	// fn1+fn8: "a\n‹x›\n‹y›\n"   ("a" + "\n‹x›\n‹y›\n")
+	// fn1+fn9: "a\n‹x›\n‹y›\n"   ("a" + "\n‹x›\n‹y›\n")
+	// fn2+fn0: "a"   ("a" + "")
+	// fn2+fn1: "a‹a›"   ("a" + "‹a›")
+	// fn2+fn2: "a‹a›"   ("a" + "‹a›")
+	// fn2+fn3: "a‹bc›"   ("a" + "‹bc›")
+	// fn2+fn4: "a‹bc›"   ("a" + "‹bc›")
+	// fn2+fn5: "a‹safe?unsafe?›"   ("a" + "‹safe?unsafe?›")
+	// fn2+fn6: "a\n"   ("a" + "\n")
+	// fn2+fn7: "a\n"   ("a" + "\n")
+	// fn2+fn8: "a\n‹x›\n‹y›\n"   ("a" + "\n‹x›\n‹y›\n")
+	// fn2+fn9: "a\n‹x›\n‹y›\n"   ("a" + "\n‹x›\n‹y›\n")
+	// fn3+fn0: "bc"   ("bc" + "")
+	// fn3+fn1: "bc‹a›"   ("bc" + "‹a›")
+	// fn3+fn2: "bc‹a›"   ("bc" + "‹a›")
+	// fn3+fn3: "bc‹bc›"   ("bc" + "‹bc›")
+	// fn3+fn4: "bc‹bc›"   ("bc" + "‹bc›")
+	// fn3+fn5: "bc‹safe?unsafe?›"   ("bc" + "‹safe?unsafe?›")
+	// fn3+fn6: "bc\n"   ("bc" + "\n")
+	// fn3+fn7: "bc\n"   ("bc" + "\n")
+	// fn3+fn8: "bc\n‹x›\n‹y›\n"   ("bc" + "\n‹x›\n‹y›\n")
+	// fn3+fn9: "bc\n‹x›\n‹y›\n"   ("bc" + "\n‹x›\n‹y›\n")
+	// fn4+fn0: "bc"   ("bc" + "")
+	// fn4+fn1: "bc‹a›"   ("bc" + "‹a›")
+	// fn4+fn2: "bc‹a›"   ("bc" + "‹a›")
+	// fn4+fn3: "bc‹bc›"   ("bc" + "‹bc›")
+	// fn4+fn4: "bc‹bc›"   ("bc" + "‹bc›")
+	// fn4+fn5: "bc‹safe?unsafe?›"   ("bc" + "‹safe?unsafe?›")
+	// fn4+fn6: "bc\n"   ("bc" + "\n")
+	// fn4+fn7: "bc\n"   ("bc" + "\n")
+	// fn4+fn8: "bc\n‹x›\n‹y›\n"   ("bc" + "\n‹x›\n‹y›\n")
+	// fn4+fn9: "bc\n‹x›\n‹y›\n"   ("bc" + "\n‹x›\n‹y›\n")
+	// fn5+fn0: "safe‹unsafe›"   ("safe‹unsafe›" + "")
+	// fn5+fn1: "safe‹unsafea›"   ("safe‹unsafe›" + "‹a›")
+	// fn5+fn2: "safe‹unsafea›"   ("safe‹unsafe›" + "‹a›")
+	// fn5+fn3: "safe‹unsafebc›"   ("safe‹unsafe›" + "‹bc›")
+	// fn5+fn4: "safe‹unsafebc›"   ("safe‹unsafe›" + "‹bc›")
+	// fn5+fn5: "safe‹unsafesafe?unsafe?›"   ("safe‹unsafe›" + "‹safe?unsafe?›")
+	// fn5+fn6: "safe‹unsafe›\n"   ("safe‹unsafe›" + "\n")
+	// fn5+fn7: "safe‹unsafe›\n"   ("safe‹unsafe›" + "\n")
+	// fn5+fn8: "safe‹unsafe›\n‹x›\n‹y›\n"   ("safe‹unsafe›" + "\n‹x›\n‹y›\n")
+	// fn5+fn9: "safe‹unsafe›\n‹x›\n‹y›\n"   ("safe‹unsafe›" + "\n‹x›\n‹y›\n")
+	// fn6+fn0: "\n"   ("\n" + "")
+	// fn6+fn1: "\n‹a›"   ("\n" + "‹a›")
+	// fn6+fn2: "\n‹a›"   ("\n" + "‹a›")
+	// fn6+fn3: "\n‹bc›"   ("\n" + "‹bc›")
+	// fn6+fn4: "\n‹bc›"   ("\n" + "‹bc›")
+	// fn6+fn5: "\n‹safe?unsafe?›"   ("\n" + "‹safe?unsafe?›")
+	// fn6+fn6: "\n\n"   ("\n" + "\n")
+	// fn6+fn7: "\n\n"   ("\n" + "\n")
+	// fn6+fn8: "\n\n‹x›\n‹y›\n"   ("\n" + "\n‹x›\n‹y›\n")
+	// fn6+fn9: "\n\n‹x›\n‹y›\n"   ("\n" + "\n‹x›\n‹y›\n")
+	// fn7+fn0: "\n"   ("\n" + "")
+	// fn7+fn1: "\n‹a›"   ("\n" + "‹a›")
+	// fn7+fn2: "\n‹a›"   ("\n" + "‹a›")
+	// fn7+fn3: "\n‹bc›"   ("\n" + "‹bc›")
+	// fn7+fn4: "\n‹bc›"   ("\n" + "‹bc›")
+	// fn7+fn5: "\n‹safe?unsafe?›"   ("\n" + "‹safe?unsafe?›")
+	// fn7+fn6: "\n\n"   ("\n" + "\n")
+	// fn7+fn7: "\n\n"   ("\n" + "\n")
+	// fn7+fn8: "\n\n‹x›\n‹y›\n"   ("\n" + "\n‹x›\n‹y›\n")
+	// fn7+fn9: "\n\n‹x›\n‹y›\n"   ("\n" + "\n‹x›\n‹y›\n")
+	// fn8+fn0: "\nx\ny\n"   ("\nx\ny\n" + "")
+	// fn8+fn1: "\nx\ny\n‹a›"   ("\nx\ny\n" + "‹a›")
+	// fn8+fn2: "\nx\ny\n‹a›"   ("\nx\ny\n" + "‹a›")
+	// fn8+fn3: "\nx\ny\n‹bc›"   ("\nx\ny\n" + "‹bc›")
+	// fn8+fn4: "\nx\ny\n‹bc›"   ("\nx\ny\n" + "‹bc›")
+	// fn8+fn5: "\nx\ny\n‹safe?unsafe?›"   ("\nx\ny\n" + "‹safe?unsafe?›")
+	// fn8+fn6: "\nx\ny\n\n"   ("\nx\ny\n" + "\n")
+	// fn8+fn7: "\nx\ny\n\n"   ("\nx\ny\n" + "\n")
+	// fn8+fn8: "\nx\ny\n\n‹x›\n‹y›\n"   ("\nx\ny\n" + "\n‹x›\n‹y›\n")
+	// fn8+fn9: "\nx\ny\n\n‹x›\n‹y›\n"   ("\nx\ny\n" + "\n‹x›\n‹y›\n")
+	// fn9+fn0: "\nx\ny\n"   ("\nx\ny\n" + "")
+	// fn9+fn1: "\nx\ny\n‹a›"   ("\nx\ny\n" + "‹a›")
+	// fn9+fn2: "\nx\ny\n‹a›"   ("\nx\ny\n" + "‹a›")
+	// fn9+fn3: "\nx\ny\n‹bc›"   ("\nx\ny\n" + "‹bc›")
+	// fn9+fn4: "\nx\ny\n‹bc›"   ("\nx\ny\n" + "‹bc›")
+	// fn9+fn5: "\nx\ny\n‹safe?unsafe?›"   ("\nx\ny\n" + "‹safe?unsafe?›")
+	// fn9+fn6: "\nx\ny\n\n"   ("\nx\ny\n" + "\n")
+	// fn9+fn7: "\nx\ny\n\n"   ("\nx\ny\n" + "\n")
+	// fn9+fn8: "\nx\ny\n\n‹x›\n‹y›\n"   ("\nx\ny\n" + "\n‹x›\n‹y›\n")
+	// fn9+fn9: "\nx\ny\n\n‹x›\n‹y›\n"   ("\nx\ny\n" + "\n‹x›\n‹y›\n")
 	//
 	// 1  ->  2
-	// fn0+fn0: ""
-	// fn0+fn1: "a"
-	// fn0+fn2: "a"
-	// fn0+fn3: "hello\nworld"
-	// fn0+fn4: "hello\nworld"
-	// fn0+fn5: "safe‹unsafe›"
-	// fn1+fn0: "a"
-	// fn1+fn1: "aa"
-	// fn1+fn2: "aa"
-	// fn1+fn3: "ahello\nworld"
-	// fn1+fn4: "ahello\nworld"
-	// fn1+fn5: "asafe‹unsafe›"
-	// fn2+fn0: "a"
-	// fn2+fn1: "aa"
-	// fn2+fn2: "aa"
-	// fn2+fn3: "ahello\nworld"
-	// fn2+fn4: "ahello\nworld"
-	// fn2+fn5: "asafe‹unsafe›"
-	// fn3+fn0: "hello\nworld"
-	// fn3+fn1: "hello\nworlda"
-	// fn3+fn2: "hello\nworlda"
-	// fn3+fn3: "hello\nworldhello\nworld"
-	// fn3+fn4: "hello\nworldhello\nworld"
-	// fn3+fn5: "hello\nworldsafe‹unsafe›"
-	// fn4+fn0: "hello\nworld"
-	// fn4+fn1: "hello\nworlda"
-	// fn4+fn2: "hello\nworlda"
-	// fn4+fn3: "hello\nworldhello\nworld"
-	// fn4+fn4: "hello\nworldhello\nworld"
-	// fn4+fn5: "hello\nworldsafe‹unsafe›"
-	// fn5+fn0: "safe?unsafe?"
-	// fn5+fn1: "safe?unsafe?a"
-	// fn5+fn2: "safe?unsafe?a"
-	// fn5+fn3: "safe?unsafe?hello\nworld"
-	// fn5+fn4: "safe?unsafe?hello\nworld"
-	// fn5+fn5: "safe?unsafe?safe‹unsafe›"
+	// fn0+fn0: ""   ("" + "")
+	// fn0+fn1: "a"   ("" + "a")
+	// fn0+fn2: "a"   ("" + "a")
+	// fn0+fn3: "bc"   ("" + "bc")
+	// fn0+fn4: "bc"   ("" + "bc")
+	// fn0+fn5: "safe‹unsafe›"   ("" + "safe‹unsafe›")
+	// fn0+fn6: "\n"   ("" + "\n")
+	// fn0+fn7: "\n"   ("" + "\n")
+	// fn0+fn8: "\nx\ny\n"   ("" + "\nx\ny\n")
+	// fn0+fn9: "\nx\ny\n"   ("" + "\nx\ny\n")
+	// fn1+fn0: "a"   ("a" + "")
+	// fn1+fn1: "aa"   ("a" + "a")
+	// fn1+fn2: "aa"   ("a" + "a")
+	// fn1+fn3: "abc"   ("a" + "bc")
+	// fn1+fn4: "abc"   ("a" + "bc")
+	// fn1+fn5: "asafe‹unsafe›"   ("a" + "safe‹unsafe›")
+	// fn1+fn6: "a\n"   ("a" + "\n")
+	// fn1+fn7: "a\n"   ("a" + "\n")
+	// fn1+fn8: "a\nx\ny\n"   ("a" + "\nx\ny\n")
+	// fn1+fn9: "a\nx\ny\n"   ("a" + "\nx\ny\n")
+	// fn2+fn0: "a"   ("a" + "")
+	// fn2+fn1: "aa"   ("a" + "a")
+	// fn2+fn2: "aa"   ("a" + "a")
+	// fn2+fn3: "abc"   ("a" + "bc")
+	// fn2+fn4: "abc"   ("a" + "bc")
+	// fn2+fn5: "asafe‹unsafe›"   ("a" + "safe‹unsafe›")
+	// fn2+fn6: "a\n"   ("a" + "\n")
+	// fn2+fn7: "a\n"   ("a" + "\n")
+	// fn2+fn8: "a\nx\ny\n"   ("a" + "\nx\ny\n")
+	// fn2+fn9: "a\nx\ny\n"   ("a" + "\nx\ny\n")
+	// fn3+fn0: "bc"   ("bc" + "")
+	// fn3+fn1: "bca"   ("bc" + "a")
+	// fn3+fn2: "bca"   ("bc" + "a")
+	// fn3+fn3: "bcbc"   ("bc" + "bc")
+	// fn3+fn4: "bcbc"   ("bc" + "bc")
+	// fn3+fn5: "bcsafe‹unsafe›"   ("bc" + "safe‹unsafe›")
+	// fn3+fn6: "bc\n"   ("bc" + "\n")
+	// fn3+fn7: "bc\n"   ("bc" + "\n")
+	// fn3+fn8: "bc\nx\ny\n"   ("bc" + "\nx\ny\n")
+	// fn3+fn9: "bc\nx\ny\n"   ("bc" + "\nx\ny\n")
+	// fn4+fn0: "bc"   ("bc" + "")
+	// fn4+fn1: "bca"   ("bc" + "a")
+	// fn4+fn2: "bca"   ("bc" + "a")
+	// fn4+fn3: "bcbc"   ("bc" + "bc")
+	// fn4+fn4: "bcbc"   ("bc" + "bc")
+	// fn4+fn5: "bcsafe‹unsafe›"   ("bc" + "safe‹unsafe›")
+	// fn4+fn6: "bc\n"   ("bc" + "\n")
+	// fn4+fn7: "bc\n"   ("bc" + "\n")
+	// fn4+fn8: "bc\nx\ny\n"   ("bc" + "\nx\ny\n")
+	// fn4+fn9: "bc\nx\ny\n"   ("bc" + "\nx\ny\n")
+	// fn5+fn0: "safe?unsafe?"   ("safe?unsafe?" + "")
+	// fn5+fn1: "safe?unsafe?a"   ("safe?unsafe?" + "a")
+	// fn5+fn2: "safe?unsafe?a"   ("safe?unsafe?" + "a")
+	// fn5+fn3: "safe?unsafe?bc"   ("safe?unsafe?" + "bc")
+	// fn5+fn4: "safe?unsafe?bc"   ("safe?unsafe?" + "bc")
+	// fn5+fn5: "safe?unsafe?safe‹unsafe›"   ("safe?unsafe?" + "safe‹unsafe›")
+	// fn5+fn6: "safe?unsafe?\n"   ("safe?unsafe?" + "\n")
+	// fn5+fn7: "safe?unsafe?\n"   ("safe?unsafe?" + "\n")
+	// fn5+fn8: "safe?unsafe?\nx\ny\n"   ("safe?unsafe?" + "\nx\ny\n")
+	// fn5+fn9: "safe?unsafe?\nx\ny\n"   ("safe?unsafe?" + "\nx\ny\n")
+	// fn6+fn0: "\n"   ("\n" + "")
+	// fn6+fn1: "\na"   ("\n" + "a")
+	// fn6+fn2: "\na"   ("\n" + "a")
+	// fn6+fn3: "\nbc"   ("\n" + "bc")
+	// fn6+fn4: "\nbc"   ("\n" + "bc")
+	// fn6+fn5: "\nsafe‹unsafe›"   ("\n" + "safe‹unsafe›")
+	// fn6+fn6: "\n\n"   ("\n" + "\n")
+	// fn6+fn7: "\n\n"   ("\n" + "\n")
+	// fn6+fn8: "\n\nx\ny\n"   ("\n" + "\nx\ny\n")
+	// fn6+fn9: "\n\nx\ny\n"   ("\n" + "\nx\ny\n")
+	// fn7+fn0: "\n"   ("\n" + "")
+	// fn7+fn1: "\na"   ("\n" + "a")
+	// fn7+fn2: "\na"   ("\n" + "a")
+	// fn7+fn3: "\nbc"   ("\n" + "bc")
+	// fn7+fn4: "\nbc"   ("\n" + "bc")
+	// fn7+fn5: "\nsafe‹unsafe›"   ("\n" + "safe‹unsafe›")
+	// fn7+fn6: "\n\n"   ("\n" + "\n")
+	// fn7+fn7: "\n\n"   ("\n" + "\n")
+	// fn7+fn8: "\n\nx\ny\n"   ("\n" + "\nx\ny\n")
+	// fn7+fn9: "\n\nx\ny\n"   ("\n" + "\nx\ny\n")
+	// fn8+fn0: "\nx\ny\n"   ("\nx\ny\n" + "")
+	// fn8+fn1: "\nx\ny\na"   ("\nx\ny\n" + "a")
+	// fn8+fn2: "\nx\ny\na"   ("\nx\ny\n" + "a")
+	// fn8+fn3: "\nx\ny\nbc"   ("\nx\ny\n" + "bc")
+	// fn8+fn4: "\nx\ny\nbc"   ("\nx\ny\n" + "bc")
+	// fn8+fn5: "\nx\ny\nsafe‹unsafe›"   ("\nx\ny\n" + "safe‹unsafe›")
+	// fn8+fn6: "\nx\ny\n\n"   ("\nx\ny\n" + "\n")
+	// fn8+fn7: "\nx\ny\n\n"   ("\nx\ny\n" + "\n")
+	// fn8+fn8: "\nx\ny\n\nx\ny\n"   ("\nx\ny\n" + "\nx\ny\n")
+	// fn8+fn9: "\nx\ny\n\nx\ny\n"   ("\nx\ny\n" + "\nx\ny\n")
+	// fn9+fn0: "\nx\ny\n"   ("\nx\ny\n" + "")
+	// fn9+fn1: "\nx\ny\na"   ("\nx\ny\n" + "a")
+	// fn9+fn2: "\nx\ny\na"   ("\nx\ny\n" + "a")
+	// fn9+fn3: "\nx\ny\nbc"   ("\nx\ny\n" + "bc")
+	// fn9+fn4: "\nx\ny\nbc"   ("\nx\ny\n" + "bc")
+	// fn9+fn5: "\nx\ny\nsafe‹unsafe›"   ("\nx\ny\n" + "safe‹unsafe›")
+	// fn9+fn6: "\nx\ny\n\n"   ("\nx\ny\n" + "\n")
+	// fn9+fn7: "\nx\ny\n\n"   ("\nx\ny\n" + "\n")
+	// fn9+fn8: "\nx\ny\n\nx\ny\n"   ("\nx\ny\n" + "\nx\ny\n")
+	// fn9+fn9: "\nx\ny\n\nx\ny\n"   ("\nx\ny\n" + "\nx\ny\n")
 	//
 	// 2  ->  1
-	// fn0+fn0: ""
-	// fn0+fn1: "a"
-	// fn0+fn2: "a"
-	// fn0+fn3: "hello\nworld"
-	// fn0+fn4: "hello\nworld"
-	// fn0+fn5: "safe?unsafe?"
-	// fn1+fn0: "a"
-	// fn1+fn1: "aa"
-	// fn1+fn2: "aa"
-	// fn1+fn3: "ahello\nworld"
-	// fn1+fn4: "ahello\nworld"
-	// fn1+fn5: "asafe?unsafe?"
-	// fn2+fn0: "a"
-	// fn2+fn1: "aa"
-	// fn2+fn2: "aa"
-	// fn2+fn3: "ahello\nworld"
-	// fn2+fn4: "ahello\nworld"
-	// fn2+fn5: "asafe?unsafe?"
-	// fn3+fn0: "hello\nworld"
-	// fn3+fn1: "hello\nworlda"
-	// fn3+fn2: "hello\nworlda"
-	// fn3+fn3: "hello\nworldhello\nworld"
-	// fn3+fn4: "hello\nworldhello\nworld"
-	// fn3+fn5: "hello\nworldsafe?unsafe?"
-	// fn4+fn0: "hello\nworld"
-	// fn4+fn1: "hello\nworlda"
-	// fn4+fn2: "hello\nworlda"
-	// fn4+fn3: "hello\nworldhello\nworld"
-	// fn4+fn4: "hello\nworldhello\nworld"
-	// fn4+fn5: "hello\nworldsafe?unsafe?"
-	// fn5+fn0: "safe‹unsafe›"
-	// fn5+fn1: "safe‹unsafe›a"
-	// fn5+fn2: "safe‹unsafe›a"
-	// fn5+fn3: "safe‹unsafe›hello\nworld"
-	// fn5+fn4: "safe‹unsafe›hello\nworld"
-	// fn5+fn5: "safe‹unsafe›safe?unsafe?"
-
+	// fn0+fn0: ""   ("" + "")
+	// fn0+fn1: "a"   ("" + "a")
+	// fn0+fn2: "a"   ("" + "a")
+	// fn0+fn3: "bc"   ("" + "bc")
+	// fn0+fn4: "bc"   ("" + "bc")
+	// fn0+fn5: "safe?unsafe?"   ("" + "safe?unsafe?")
+	// fn0+fn6: "\n"   ("" + "\n")
+	// fn0+fn7: "\n"   ("" + "\n")
+	// fn0+fn8: "\nx\ny\n"   ("" + "\nx\ny\n")
+	// fn0+fn9: "\nx\ny\n"   ("" + "\nx\ny\n")
+	// fn1+fn0: "a"   ("a" + "")
+	// fn1+fn1: "aa"   ("a" + "a")
+	// fn1+fn2: "aa"   ("a" + "a")
+	// fn1+fn3: "abc"   ("a" + "bc")
+	// fn1+fn4: "abc"   ("a" + "bc")
+	// fn1+fn5: "asafe?unsafe?"   ("a" + "safe?unsafe?")
+	// fn1+fn6: "a\n"   ("a" + "\n")
+	// fn1+fn7: "a\n"   ("a" + "\n")
+	// fn1+fn8: "a\nx\ny\n"   ("a" + "\nx\ny\n")
+	// fn1+fn9: "a\nx\ny\n"   ("a" + "\nx\ny\n")
+	// fn2+fn0: "a"   ("a" + "")
+	// fn2+fn1: "aa"   ("a" + "a")
+	// fn2+fn2: "aa"   ("a" + "a")
+	// fn2+fn3: "abc"   ("a" + "bc")
+	// fn2+fn4: "abc"   ("a" + "bc")
+	// fn2+fn5: "asafe?unsafe?"   ("a" + "safe?unsafe?")
+	// fn2+fn6: "a\n"   ("a" + "\n")
+	// fn2+fn7: "a\n"   ("a" + "\n")
+	// fn2+fn8: "a\nx\ny\n"   ("a" + "\nx\ny\n")
+	// fn2+fn9: "a\nx\ny\n"   ("a" + "\nx\ny\n")
+	// fn3+fn0: "bc"   ("bc" + "")
+	// fn3+fn1: "bca"   ("bc" + "a")
+	// fn3+fn2: "bca"   ("bc" + "a")
+	// fn3+fn3: "bcbc"   ("bc" + "bc")
+	// fn3+fn4: "bcbc"   ("bc" + "bc")
+	// fn3+fn5: "bcsafe?unsafe?"   ("bc" + "safe?unsafe?")
+	// fn3+fn6: "bc\n"   ("bc" + "\n")
+	// fn3+fn7: "bc\n"   ("bc" + "\n")
+	// fn3+fn8: "bc\nx\ny\n"   ("bc" + "\nx\ny\n")
+	// fn3+fn9: "bc\nx\ny\n"   ("bc" + "\nx\ny\n")
+	// fn4+fn0: "bc"   ("bc" + "")
+	// fn4+fn1: "bca"   ("bc" + "a")
+	// fn4+fn2: "bca"   ("bc" + "a")
+	// fn4+fn3: "bcbc"   ("bc" + "bc")
+	// fn4+fn4: "bcbc"   ("bc" + "bc")
+	// fn4+fn5: "bcsafe?unsafe?"   ("bc" + "safe?unsafe?")
+	// fn4+fn6: "bc\n"   ("bc" + "\n")
+	// fn4+fn7: "bc\n"   ("bc" + "\n")
+	// fn4+fn8: "bc\nx\ny\n"   ("bc" + "\nx\ny\n")
+	// fn4+fn9: "bc\nx\ny\n"   ("bc" + "\nx\ny\n")
+	// fn5+fn0: "safe‹unsafe›"   ("safe‹unsafe›" + "")
+	// fn5+fn1: "safe‹unsafe›a"   ("safe‹unsafe›" + "a")
+	// fn5+fn2: "safe‹unsafe›a"   ("safe‹unsafe›" + "a")
+	// fn5+fn3: "safe‹unsafe›bc"   ("safe‹unsafe›" + "bc")
+	// fn5+fn4: "safe‹unsafe›bc"   ("safe‹unsafe›" + "bc")
+	// fn5+fn5: "safe‹unsafe›safe?unsafe?"   ("safe‹unsafe›" + "safe?unsafe?")
+	// fn5+fn6: "safe‹unsafe›\n"   ("safe‹unsafe›" + "\n")
+	// fn5+fn7: "safe‹unsafe›\n"   ("safe‹unsafe›" + "\n")
+	// fn5+fn8: "safe‹unsafe›\nx\ny\n"   ("safe‹unsafe›" + "\nx\ny\n")
+	// fn5+fn9: "safe‹unsafe›\nx\ny\n"   ("safe‹unsafe›" + "\nx\ny\n")
+	// fn6+fn0: "\n"   ("\n" + "")
+	// fn6+fn1: "\na"   ("\n" + "a")
+	// fn6+fn2: "\na"   ("\n" + "a")
+	// fn6+fn3: "\nbc"   ("\n" + "bc")
+	// fn6+fn4: "\nbc"   ("\n" + "bc")
+	// fn6+fn5: "\nsafe?unsafe?"   ("\n" + "safe?unsafe?")
+	// fn6+fn6: "\n\n"   ("\n" + "\n")
+	// fn6+fn7: "\n\n"   ("\n" + "\n")
+	// fn6+fn8: "\n\nx\ny\n"   ("\n" + "\nx\ny\n")
+	// fn6+fn9: "\n\nx\ny\n"   ("\n" + "\nx\ny\n")
+	// fn7+fn0: "\n"   ("\n" + "")
+	// fn7+fn1: "\na"   ("\n" + "a")
+	// fn7+fn2: "\na"   ("\n" + "a")
+	// fn7+fn3: "\nbc"   ("\n" + "bc")
+	// fn7+fn4: "\nbc"   ("\n" + "bc")
+	// fn7+fn5: "\nsafe?unsafe?"   ("\n" + "safe?unsafe?")
+	// fn7+fn6: "\n\n"   ("\n" + "\n")
+	// fn7+fn7: "\n\n"   ("\n" + "\n")
+	// fn7+fn8: "\n\nx\ny\n"   ("\n" + "\nx\ny\n")
+	// fn7+fn9: "\n\nx\ny\n"   ("\n" + "\nx\ny\n")
+	// fn8+fn0: "\nx\ny\n"   ("\nx\ny\n" + "")
+	// fn8+fn1: "\nx\ny\na"   ("\nx\ny\n" + "a")
+	// fn8+fn2: "\nx\ny\na"   ("\nx\ny\n" + "a")
+	// fn8+fn3: "\nx\ny\nbc"   ("\nx\ny\n" + "bc")
+	// fn8+fn4: "\nx\ny\nbc"   ("\nx\ny\n" + "bc")
+	// fn8+fn5: "\nx\ny\nsafe?unsafe?"   ("\nx\ny\n" + "safe?unsafe?")
+	// fn8+fn6: "\nx\ny\n\n"   ("\nx\ny\n" + "\n")
+	// fn8+fn7: "\nx\ny\n\n"   ("\nx\ny\n" + "\n")
+	// fn8+fn8: "\nx\ny\n\nx\ny\n"   ("\nx\ny\n" + "\nx\ny\n")
+	// fn8+fn9: "\nx\ny\n\nx\ny\n"   ("\nx\ny\n" + "\nx\ny\n")
+	// fn9+fn0: "\nx\ny\n"   ("\nx\ny\n" + "")
+	// fn9+fn1: "\nx\ny\na"   ("\nx\ny\n" + "a")
+	// fn9+fn2: "\nx\ny\na"   ("\nx\ny\n" + "a")
+	// fn9+fn3: "\nx\ny\nbc"   ("\nx\ny\n" + "bc")
+	// fn9+fn4: "\nx\ny\nbc"   ("\nx\ny\n" + "bc")
+	// fn9+fn5: "\nx\ny\nsafe?unsafe?"   ("\nx\ny\n" + "safe?unsafe?")
+	// fn9+fn6: "\nx\ny\n\n"   ("\nx\ny\n" + "\n")
+	// fn9+fn7: "\nx\ny\n\n"   ("\nx\ny\n" + "\n")
+	// fn9+fn8: "\nx\ny\n\nx\ny\n"   ("\nx\ny\n" + "\nx\ny\n")
+	// fn9+fn9: "\nx\ny\n\nx\ny\n"   ("\nx\ny\n" + "\nx\ny\n")
 }
 
 // This test checks that moving mode from SafeEscaped to UnsafeEscaped

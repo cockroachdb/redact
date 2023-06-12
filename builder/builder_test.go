@@ -118,16 +118,41 @@ UUU
 }
 
 func TestMixedWrites(t *testing.T) {
-	var b StringBuilder
-	b.SafeString("safe")
-	b.WriteString("unsafe")
-	b.SafeString("")
-	b.WriteByte('U')
-	b.SafeString("")
-	b.WriteRune('U')
-	actual := b.RedactableString()
-	const expected = `safe‹unsafe›‹U›‹U›`
-	if actual != expected {
-		t.Errorf("expected:\n%s\n\ngot:\n%s", expected, actual)
-	}
+	t.Run("oneline", func(t *testing.T) {
+		var b StringBuilder
+		b.SafeString("safe")
+		b.WriteString("unsafe")
+		b.SafeString("")
+		b.WriteByte('U')
+		b.SafeString("")
+		b.WriteRune('U')
+		actual := b.RedactableString()
+		const expected = "safe‹unsafeUU›"
+		if actual != expected {
+			t.Errorf("expected:\n%s\n\ngot:\n%s", expected, actual)
+		}
+		const expectedWithoutMarkers = "safeunsafeUU"
+		if ractual := actual.StripMarkers(); ractual != expectedWithoutMarkers {
+			t.Errorf("expected:\n%s\n\ngot:\n%s", expectedWithoutMarkers, ractual)
+		}
+	})
+
+	t.Run("multiline", func(t *testing.T) {
+		var b StringBuilder
+		b.SafeString("\nsafe\n")
+		b.WriteString("\nunsafe\n")
+		b.SafeString("\n")
+		b.WriteByte('\n')
+		b.SafeString("\n")
+		b.WriteRune('\n')
+		actual := b.RedactableString()
+		const expected = "\nsafe\n\n‹unsafe›\n\n\n\n\n"
+		if actual != expected {
+			t.Errorf("expected:\n%q\n\ngot:\n%q", expected, actual)
+		}
+		const expectedWithoutMarkers = "\nsafe\n\nunsafe\n\n\n\n\n"
+		if ractual := actual.StripMarkers(); ractual != expectedWithoutMarkers {
+			t.Errorf("expected:\n%q\n\ngot:\n%q", expectedWithoutMarkers, ractual)
+		}
+	})
 }
