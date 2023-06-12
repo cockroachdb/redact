@@ -32,6 +32,12 @@ type Buffer struct {
 	validUntil int // exclusive upper bound of data that's already validated
 	mode       OutputMode
 	markerOpen bool
+
+	// These fields relate to truncation and are used to enforce the limit of
+	// runes in the buffer. Markers do not contribute to the rune count.
+	runeCount int
+	runeLimit int
+	excess    bool
 }
 
 // OutputMode determines how writes are processed in the Buffer.
@@ -129,28 +135,96 @@ func (b *Buffer) Cap() int {
 // needed. The return value n is the length of p; err is always nil. If the
 // buffer becomes too large, Write will panic with ErrTooLarge.
 func (b *Buffer) Write(p []byte) (n int, err error) {
-	b.startWrite()
-	m, ok := b.tryGrowByReslice(len(p))
-	if !ok {
-		m = b.grow(len(p))
+	length := len(p)
+	if b.runeLimit != 0 {
+		if b.runeLimit == b.runeCount {
+			if len(p) != 0 {
+				b.excess = true
+			}
+			return
+		}
+
+		runes, end, excess := limitRunes(p, b.runeLimit-b.runeCount)
+		b.runeCount += runes
+		if end < length {
+			length = end
+		}
+		b.excess = excess
 	}
-	return copy(b.buf[m:], p), nil
+
+	b.startWrite()
+	m, ok := b.tryGrowByReslice(length)
+	if !ok {
+		m = b.grow(length)
+	}
+	return copy(b.buf[m:], p[:length]), nil
 }
 
 // WriteString appends the contents of s to the buffer, growing the buffer as
 // needed. The return value n is the length of s; err is always nil. If the
 // buffer becomes too large, WriteString will panic with ErrTooLarge.
 func (b *Buffer) WriteString(s string) (n int, err error) {
-	b.startWrite()
-	m, ok := b.tryGrowByReslice(len(s))
-	if !ok {
-		m = b.grow(len(s))
+	length := len(s)
+	if b.runeLimit != 0 {
+		if b.runeLimit == b.runeCount {
+			if len(s) != 0 {
+				b.excess = true
+			}
+			return
+		}
+
+		runes, end, excess := limitRunesInString(s, b.runeLimit-b.runeCount)
+		b.runeCount += runes
+		if end < length {
+			length = end
+		}
+		b.excess = excess
 	}
-	return copy(b.buf[m:], s), nil
+
+	b.startWrite()
+	m, ok := b.tryGrowByReslice(length)
+	if !ok {
+		m = b.grow(length)
+	}
+	return copy(b.buf[m:], s[:length]), nil
+}
+
+// limitRunes counts the number of bytes in the provided
+// byte slice up to a given rune limit.
+func limitRunes(p []byte, limit int) (runes int, end int, excess bool) {
+	for runes < limit && len(p) > 0 {
+		_, s := utf8.DecodeRune(p)
+		runes++
+		end += s
+		p = p[s:]
+	}
+	excess = len(p) != 0
+	return
+}
+
+// limitRunesInString counts the number of bytes in the provided
+// string up to a given rune limit.
+func limitRunesInString(str string, limit int) (runes int, end int, excess bool) {
+	for runes < limit && len(str) > 0 {
+		_, s := utf8.DecodeRuneInString(str)
+		runes++
+		end += s
+		str = str[s:]
+	}
+	excess = len(str) != 0
+	return
 }
 
 // WriteByte emits a single byte.
 func (b *Buffer) WriteByte(s byte) error {
+	if b.runeLimit != 0 {
+		if b.runeLimit == b.runeCount {
+			b.excess = true
+			return nil
+		}
+		b.runeCount++
+	}
+
 	b.startWrite()
 	if b.mode == UnsafeEscaped &&
 		(s >= utf8.RuneSelf ||
@@ -169,6 +243,14 @@ func (b *Buffer) WriteByte(s byte) error {
 
 // WriteRune emits a single rune.
 func (b *Buffer) WriteRune(s rune) error {
+	if b.runeLimit != 0 {
+		if b.runeLimit == b.runeCount {
+			b.excess = true
+			return nil
+		}
+		b.runeCount++
+	}
+
 	b.startWrite()
 	l := utf8.RuneLen(s)
 	m, ok := b.tryGrowByReslice(l)
@@ -177,6 +259,47 @@ func (b *Buffer) WriteRune(s rune) error {
 	}
 	_ = utf8.EncodeRune(b.buf[m:], s)
 	return nil
+}
+
+// TruncateState is a struct used to store the previously set
+// rune limit. This is used to keep track of rune limits during
+// nested truncation operations.
+type TruncateState struct {
+	buf   *Buffer
+	limit int
+}
+
+// Truncate sets the rune limit and returns a TruncateState
+// that can be used to restore the previous rune limit. The
+// limit cannot exceed the previous rune limit.
+func (b *Buffer) Truncate(limit int) TruncateState {
+	prev := TruncateState{b, b.runeLimit}
+	if b.runeLimit == 0 || b.runeCount+limit < b.runeLimit {
+		b.runeLimit = b.runeCount + limit
+	}
+	return prev
+}
+
+// Restore restores the previous rune limit. If the current rune limit
+// is exceeded, a truncation marker is written.
+func (s TruncateState) Restore() {
+	if s.buf.excess && (s.limit == 0 || s.limit != s.buf.runeLimit) {
+		s.buf.excess = false
+		s.buf.markTruncate()
+	}
+	s.buf.runeLimit = s.limit
+}
+
+// markTruncate adds the truncation marker.
+func (b *Buffer) markTruncate() {
+	if len(b.buf) == 0 {
+		return
+	}
+	p, ok := b.tryGrowByReslice(len(m.Truncate))
+	if !ok {
+		p = b.grow(len(m.Truncate))
+	}
+	copy(b.buf[p:], m.Truncate)
 }
 
 // finalize ensures that all the buffer is properly
