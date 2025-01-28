@@ -59,13 +59,13 @@ func TestBuilder(t *testing.T) {
 	b.SafeRune('\n')
 
 	b.UnsafeByte('U')
-	b.SafeRune('\n')
+	b.SafeByte('\n')
 
 	b.UnsafeByte(m.StartS[0])
-	b.SafeRune('\n')
+	b.SafeByte('\n')
 
 	b.UnsafeBytes([]byte("UUU"))
-	b.SafeRune('\n')
+	b.SafeBytes([]byte("\n"))
 
 	actualR := b.RedactableString()
 	const expectedR = `‹unsafe›
