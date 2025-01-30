@@ -57,6 +57,9 @@ type SafeValue = i.SafeValue
 // TODO(knz): Remove this.
 type SafeMessager = i.SafeMessager
 
+// TruncatedValue represents a value that is truncated when printed.
+type TruncatedValue = i.TruncatedValue
+
 // SafePrinter is a stateful helper that abstracts an output stream in
 // the context of printf-like formatting, but with the ability to
 // separate safe and unsafe bits of data.
@@ -140,6 +143,11 @@ func Unsafe(a interface{}) interface{} { return w.Unsafe(a) }
 // should be taken as a signal that a new abstraction is missing.
 // The implementation is also slow.
 func Safe(a interface{}) SafeValue { return w.Safe(a) }
+
+// Truncate limits the rune length of the outputted value when
+// passed into the formatter. The excess runes are replaced
+// with the marker `…`.
+func Truncate(a interface{}, len int) TruncatedValue { return TruncatedValue{Value: a, Length: len} }
 
 // RegisterRedactErrorFn registers an error redaction function for use
 // during automatic redaction by this package.
