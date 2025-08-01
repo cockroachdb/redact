@@ -647,6 +647,13 @@ func (p *pp) handleMethods(verb rune) (handled bool) {
 		}
 	}
 
+	if truncated, ok := p.arg.(i.TruncatedValue); ok {
+		handled = true
+		defer p.catchPanic(p.arg, verb, "TruncatedValue")
+		p.printTruncated(truncated, verb)
+		return
+	}
+
 	// Is it a Formatter?
 	if formatter, ok := p.arg.(Formatter); ok {
 		handled = true
@@ -693,6 +700,13 @@ func (p *pp) handleMethods(verb rune) (handled bool) {
 		}
 	}
 	return false
+}
+
+func (p *pp) printTruncated(truncated i.TruncatedValue, verb rune) {
+	if truncated.Length > 0 {
+		defer p.buf.Truncate(truncated.Length).Restore()
+	}
+	p.printArg(truncated.Value, verb)
 }
 
 func (p *pp) printArg(arg interface{}, verb rune) {

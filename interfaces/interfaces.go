@@ -165,3 +165,9 @@ type SafeValue interface {
 type SafeMessager = interface {
 	SafeMessage() string
 }
+
+// TruncatedValue represents a value that is truncated when printed.
+type TruncatedValue struct {
+	Value  interface{}
+	Length int
+}
