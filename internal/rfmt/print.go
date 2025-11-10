@@ -711,6 +711,18 @@ func (p *pp) printArg(arg interface{}, verb rune) {
 		defer p.startSafeOverride().restore()
 	}
 
+	if _, ok := arg.(i.HashValue); ok {
+		// Mark the value for hashing during Redact(), but preserve the original value
+		// Use PreRedactable mode to prevent marker escaping
+		defer p.startPreRedactable().restore()
+		valueStr := origFmt.Sprint(arg)
+		p.buf.writeString(m.StartS)
+		p.buf.writeString(m.HashPrefixS)
+		p.buf.writeString(valueStr)
+		p.buf.writeString(m.EndS)
+		return
+	}
+
 	p.arg = arg
 	p.value = reflect.Value{}
 
@@ -791,6 +803,15 @@ func (p *pp) printArg(arg interface{}, verb rune) {
 				if _, ok := p.arg.(i.SafeValue); ok {
 					defer p.startSafeOverride().restore()
 				}
+				if _, ok := p.arg.(i.HashValue); ok {
+					defer p.startPreRedactable().restore()
+					valueStr := origFmt.Sprint(p.arg)
+					p.buf.writeString(m.StartS)
+					p.buf.writeString(m.HashPrefixS)
+					p.buf.writeString(valueStr)
+					p.buf.writeString(m.EndS)
+					return
+				}
 				if p.handleMethods(verb) {
 					return
 				}
@@ -833,6 +854,15 @@ func (p *pp) printValue(value reflect.Value, verb rune, depth int) {
 			p.arg = value.Interface()
 			if _, ok := p.arg.(i.SafeValue); ok {
 				defer p.startSafeOverride().restore()
+			}
+			if _, ok := p.arg.(i.HashValue); ok {
+				defer p.startPreRedactable().restore()
+				valueStr := origFmt.Sprint(p.arg)
+				p.buf.writeString(m.StartS)
+				p.buf.writeString(m.HashPrefixS)
+				p.buf.writeString(valueStr)
+				p.buf.writeString(m.EndS)
+				return
 			}
 			if p.handleMethods(verb) {
 				return
