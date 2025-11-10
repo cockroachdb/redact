@@ -14,7 +14,11 @@
 
 package markers
 
-import i "github.com/cockroachdb/redact/interfaces"
+import (
+	"bytes"
+
+	i "github.com/cockroachdb/redact/interfaces"
+)
 
 // RedactableString is a string that contains a mix of safe and unsafe
 // bits of data, but where it is known that unsafe bits are enclosed
@@ -34,9 +38,26 @@ func (s RedactableString) StripMarkers() string {
 }
 
 // Redact replaces all occurrences of unsafe substrings by the
-// “Redacted” marker, ‹×›. The result string is still safe.
+// "Redacted" marker, ‹×›. Hash markers (‹†value›) are replaced
+// with hashed values (‹hash›) if hashing is enabled, otherwise
+// they are redacted like regular markers. The result string is still safe.
 func (s RedactableString) Redact() RedactableString {
-	return RedactableString(ReStripSensitive.ReplaceAllString(string(s), RedactedS))
+	result := ReStripSensitive.ReplaceAllStringFunc(string(s), func(match string) string {
+		// Check if this is a hash marker by looking for † after ‹
+		if len(match) > len(StartS)+len(EndS) &&
+			match[len(StartS):len(StartS)+len(HashPrefixS)] == HashPrefixS {
+			// Only hash if hashing is enabled, otherwise redact
+			if IsHashingEnabled() {
+				// Extract value without ‹† and › and return its hash
+				value := match[len(StartS)+len(HashPrefixS) : len(match)-len(EndS)]
+				return StartS + hashString(value) + EndS
+			}
+		}
+		// Regular marker or disabled hashing - replace with ×
+		return RedactedS
+	})
+
+	return RedactableString(result)
 }
 
 // ToBytes converts the string to a byte slice.
@@ -66,9 +87,32 @@ func (s RedactableBytes) StripMarkers() []byte {
 }
 
 // Redact replaces all occurrences of unsafe substrings by the
-// “Redacted” marker, ‹×›.
+// "Redacted" marker, ‹×›. Hash markers (‹†value›) are replaced
+// with hashed values (‹hash›) if hashing is enabled, otherwise
+// they are redacted like regular markers.
 func (s RedactableBytes) Redact() RedactableBytes {
-	return RedactableBytes(ReStripSensitive.ReplaceAll(s, RedactedBytes))
+	result := ReStripSensitive.ReplaceAllFunc([]byte(s), func(match []byte) []byte {
+		// Check if this is a hash marker by looking for † after ‹
+		if len(match) > len(StartBytes)+len(EndBytes) &&
+			bytes.Equal(match[len(StartBytes):len(StartBytes)+len(HashPrefixS)], []byte(HashPrefixS)) {
+			// Only hash if hashing is enabled, otherwise redact
+			if IsHashingEnabled() {
+				// Extract value without ‹† and › and return its hash
+				value := match[len(StartBytes)+len(HashPrefixS) : len(match)-len(EndBytes)]
+				hashed := hashBytes(value)
+				res := make([]byte, len(StartBytes)+len(hashed)+len(EndBytes))
+				n := copy(res, StartBytes)
+				n += copy(res[n:], hashed)
+				copy(res[n:], EndBytes)
+				return res
+			}
+		}
+
+		// Regular marker or disabled hashing - replace with ×
+		return RedactedBytes
+	})
+
+	return RedactableBytes(result)
 }
 
 // ToString converts the byte slice to a string.
