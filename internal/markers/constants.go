@@ -27,6 +27,8 @@ const (
 	EscapeMark  = '?'
 	EscapeMarkS = string(EscapeMark)
 	RedactedS   = StartS + "×" + EndS
+	HashPrefix  = '†'
+	HashPrefixS = string(HashPrefix)
 )
 
 // Internal variables.
@@ -35,6 +37,6 @@ var (
 	EndBytes         = []byte(EndS)
 	EscapeMarkBytes  = []byte(EscapeMarkS)
 	RedactedBytes    = []byte(RedactedS)
-	ReStripSensitive = regexp.MustCompile(StartS + "[^" + StartS + EndS + "]*" + EndS)
-	ReStripMarkers   = regexp.MustCompile("[" + StartS + EndS + "]")
+	ReStripSensitive = regexp.MustCompile(StartS + HashPrefixS + "?" + "[^" + StartS + EndS + "]*" + EndS)
+	ReStripMarkers   = regexp.MustCompile("[" + StartS + EndS + HashPrefixS + "]")
 )
