@@ -16,109 +16,136 @@ package markers
 
 import (
 	"crypto/hmac"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
+	"hash"
 	"sync"
+	"sync/atomic"
 )
 
 /*
 	Hash function implementation notes:
 
-	We use SHA-1 because it provides a good balance of performance and output size
-	for the log correlation use case. SHA-1 is fast and produces compact hashes,
-	making it well-suited for high-throughput logging scenarios.
+	We use SHA-256 because it provides strong cryptographic properties with
+	negligible performance overhead on modern hardwares.
 
-	When a salt is provided via EnableHashing(), we use HMAC-SHA1 which provides
-	additional security properties and domain separation.
+	When a salt is provided via EnableHashing(), we use HMAC-SHA256 which
+	provides additional security properties and domain separation.
 
-	The hash output is truncated to 8 hex characters (32 bits) to keep log output
-	concise while still providing sufficient collision resistance for typical logging
-	workloads.
+	The hash output is truncated to 8 hex characters (32 bits) to keep log
+	output concise while still providing sufficient collision resistance for
+	typical logging workloads.
+
+	Hasher instances are pooled via sync.Pool to avoid allocating a new
+	SHA-256 or HMAC struct on every call. The pool is created once in
+	EnableHashing() with the correct hasher type (SHA-256 or HMAC-SHA256)
+	baked in, so hash functions just Get/Reset/Put without checking salt.
 */
 
-// defaultHashLength is the number of hex characters to use from the SHA-1 hash.
+// defaultHashLength is the number of hex characters to use from the hash.
 // 8 hex chars = 32 bits = ~4.3 billion unique values.
 // This provides a good balance between collision resistance and output brevity.
-// For typical logging scenarios with fewer unique sensitive values per analysis window,
-// this collision risk should be acceptable. If not, we can make this configurable in the future.
 const defaultHashLength = 8
 
-var hashConfig = struct {
-	sync.RWMutex
-	enabled bool
+// compile-time assertion to guarantee defaultHashLength doesn't exceed hex-encoded hash length.
+var _ [sha256.Size*2 - defaultHashLength]byte 
+
+// hasherState holds a reusable hash.Hash and a pre-allocated Sum buffer.
+// sumBuf must live in the pool because Sum() is an interface method —
+// the compiler can't prove it won't store a reference, because of hash being
+// in pool, so a local [32]byte would escape to heap on every call.
+// hexBuf is a stack-allocated local in the hash functions because
+// hex.Encode is a concrete function call that doesn't cause escape.
+type hasherState struct {
+	h      hash.Hash
+	sumBuf [sha256.Size]byte // reusable buffer for h.Sum() output
+}
+
+var hashConfig struct {
+	enabled atomic.Bool
 	salt    []byte
-}{
-	enabled: false,
-	salt:    nil,
+	pool    *sync.Pool
 }
 
 // EnableHashing enables hash-based redaction with an optional salt.
-// When salt is nil, hash markers use plain SHA1.
-// When salt is provided, hash markers use HMAC-SHA1 for better security.
+// When salt is nil, hash markers use plain SHA-256.
+// When salt is provided, hash markers use HMAC-SHA256 for better security.
+//
+// A sync.Pool of hasherState instances is created here with the correct
+// hasher type, so hash functions just Get/Reset/Put without checking salt.
 func EnableHashing(salt []byte) {
-	hashConfig.Lock()
-	defer hashConfig.Unlock()
-	hashConfig.enabled = true
+	var pool *sync.Pool
+	if len(salt) > 0 {
+		// Copy so the pool closure doesn't capture a mutable slice.
+		saltCopy := make([]byte, len(salt))
+		copy(saltCopy, salt)
+		pool = &sync.Pool{
+			New: func() interface{} {
+				return &hasherState{h: hmac.New(sha256.New, saltCopy)}
+			},
+		}
+	} else {
+		pool = &sync.Pool{
+			New: func() interface{} {
+				return &hasherState{h: sha256.New()}
+			},
+		}
+	}
+
+	// Write data before flipping the gate.
+	// The atomic store on enabled acts as a release barrier — any goroutine
+	// that reads enabled==true via atomic load is guaranteed to see pool and salt.
 	hashConfig.salt = salt
+	hashConfig.pool = pool
+	hashConfig.enabled.Store(true)
+}
+
+// DisableHashing disables hash-based redaction.
+// The pool and salt are intentionally left intact so that in-flight
+// hashers (which captured the pool pointer) can finish safely.
+func DisableHashing() {
+	hashConfig.enabled.Store(false)
 }
 
 // IsHashingEnabled returns true if hash-based redaction is enabled.
 func IsHashingEnabled() bool {
-	hashConfig.RLock()
-	defer hashConfig.RUnlock()
-	return hashConfig.enabled
+	return hashConfig.enabled.Load()
 }
 
-// hashString computes a truncated hash of the input string.
-// Uses HMAC-SHA1 if salt is set, otherwise plain SHA1.
+// hashString computes a truncated SHA-256 hash of the input string.
+// Uses a pooled hasher instance.
 // Must only be called when hashing is enabled (IsHashingEnabled() == true).
 func hashString(value string) string {
-	hashConfig.RLock()
-	salt := hashConfig.salt
-	hashConfig.RUnlock()
+	p := hashConfig.pool
+	state := p.Get().(*hasherState)
 
-	var h []byte
-	if len(salt) > 0 {
-		mac := hmac.New(sha1.New, salt)
-		mac.Write([]byte(value))
-		h = mac.Sum(nil)
-	} else {
-		hasher := sha1.New()
-		hasher.Write([]byte(value))
-		h = hasher.Sum(nil)
-	}
+	var hexBuf [sha256.Size * 2]byte 
+	state.h.Reset()
+	state.h.Write([]byte(value))
+	sum := state.h.Sum(state.sumBuf[:0]) 
+	hex.Encode(hexBuf[:], sum)           
 
-	fullHash := hex.EncodeToString(h)
-	if len(fullHash) > defaultHashLength {
-		return fullHash[:defaultHashLength]
-	}
-	return fullHash
+	result := string(hexBuf[:defaultHashLength])
+	p.Put(state)
+	return result
 }
 
-// hashBytes computes a truncated hash of the input byte slice.
-// Uses HMAC-SHA1 if salt is set, otherwise plain SHA1.
+// hashBytes computes a truncated SHA-256 hash of the input byte slice.
+// Uses a pooled hasher instance — no per-call hasher allocation.
 // Must only be called when hashing is enabled (IsHashingEnabled() == true).
 func hashBytes(value []byte) []byte {
-	hashConfig.RLock()
-	salt := hashConfig.salt
-	hashConfig.RUnlock()
+	p := hashConfig.pool
+	state := p.Get().(*hasherState)
 
-	var h []byte
-	if len(salt) > 0 {
-		mac := hmac.New(sha1.New, salt)
-		mac.Write(value)
-		h = mac.Sum(nil)
-	} else {
-		hasher := sha1.New()
-		hasher.Write(value)
-		h = hasher.Sum(nil)
-	}
+	var hexBuf [sha256.Size * 2]byte
 
-	fullHash := make([]byte, sha1.Size*2)
-	_ = hex.Encode(fullHash, h)
+	state.h.Reset()
+	state.h.Write(value)
+	sum := state.h.Sum(state.sumBuf[:0])
+	hex.Encode(hexBuf[:], sum)
 
-	if len(fullHash) > defaultHashLength {
-		return fullHash[:defaultHashLength]
-	}
-	return fullHash
+	result := make([]byte, defaultHashLength)
+	copy(result, hexBuf[:defaultHashLength])
+	p.Put(state)
+	return result
 }

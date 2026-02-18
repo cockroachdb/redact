@@ -202,8 +202,14 @@ func RegisterSafeType(t reflect.Type) {
 
 // EnableHashing enables hash-based redaction with an optional salt.
 // Hash markers (‹†value›) will be replaced with hashes instead of being fully redacted.
-// When salt is nil, hash markers use plain SHA1.
-// When salt is provided, hash markers use HMAC-SHA1 for better security.
+// When salt is nil, hash markers use plain SHA-256.
+// When salt is provided, hash markers use HMAC-SHA256 for better security.
 func EnableHashing(salt []byte) {
 	m.EnableHashing(salt)
+}
+
+// DisableHashing disables hash-based redaction.
+// Hash markers will be fully redacted instead of being replaced with hashes.
+func DisableHashing() {
+	m.DisableHashing()
 }

@@ -20,17 +20,7 @@ import (
 )
 
 func TestHash(t *testing.T) {
-	// Save original state and restore after test
-	hashConfig.RLock()
-	originalEnabled := hashConfig.enabled
-	originalSalt := hashConfig.salt
-	hashConfig.RUnlock()
-	defer func() {
-		hashConfig.Lock()
-		hashConfig.enabled = originalEnabled
-		hashConfig.salt = originalSalt
-		hashConfig.Unlock()
-	}()
+	defer DisableHashing()
 
 	testCases := []struct {
 		name     string
@@ -42,37 +32,37 @@ func TestHash(t *testing.T) {
 			name:     "simple string",
 			input:    "test",
 			salt:     nil,
-			expected: "a94a8fe5",
+			expected: "9f86d081",
 		},
 		{
 			name:     "empty string",
 			input:    "",
 			salt:     nil,
-			expected: "da39a3ee",
+			expected: "e3b0c442",
 		},
 		{
 			name:     "input exceeding hash length",
 			input:    strings.Repeat("long-input-", 100),
 			salt:     nil,
-			expected: "c375461f",
+			expected: "130ca5ec",
 		},
 		{
 			name:     "numeric string",
 			input:    "12345",
 			salt:     nil,
-			expected: "8cb2237d",
+			expected: "5994471a",
 		},
 		{
 			name:     "simple string with salt",
 			input:    "test",
 			salt:     []byte("my-salt"),
-			expected: "c48ce5fd",
+			expected: "ac2fdbab",
 		},
 		{
 			name:     "empty string with salt",
 			input:    "",
 			salt:     []byte("my-salt"),
-			expected: "7b1829af",
+			expected: "e5d13fde",
 		},
 	}
 
@@ -109,17 +99,7 @@ func TestHash(t *testing.T) {
 }
 
 func TestHashDeterminism(t *testing.T) {
-	// Save original state and restore after test
-	hashConfig.RLock()
-	originalEnabled := hashConfig.enabled
-	originalSalt := hashConfig.salt
-	hashConfig.RUnlock()
-	defer func() {
-		hashConfig.Lock()
-		hashConfig.enabled = originalEnabled
-		hashConfig.salt = originalSalt
-		hashConfig.Unlock()
-	}()
+	defer DisableHashing()
 
 	EnableHashing(nil)
 
