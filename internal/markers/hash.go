@@ -1,4 +1,4 @@
-// Copyright 2025 The Cockroach Authors.
+// Copyright 2026 The Cockroach Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -63,8 +63,7 @@ type hasherState struct {
 
 var hashConfig struct {
 	enabled atomic.Bool
-	salt    []byte
-	pool    *sync.Pool
+	pool    atomic.Value 
 }
 
 // EnableHashing enables hash-based redaction with an optional salt.
@@ -92,11 +91,7 @@ func EnableHashing(salt []byte) {
 		}
 	}
 
-	// Write data before flipping the gate.
-	// The atomic store on enabled acts as a release barrier — any goroutine
-	// that reads enabled==true via atomic load is guaranteed to see pool and salt.
-	hashConfig.salt = salt
-	hashConfig.pool = pool
+	hashConfig.pool.Store(pool)
 	hashConfig.enabled.Store(true)
 }
 
@@ -116,7 +111,7 @@ func IsHashingEnabled() bool {
 // Uses a pooled hasher instance.
 // Must only be called when hashing is enabled (IsHashingEnabled() == true).
 func hashString(value string) string {
-	p := hashConfig.pool
+	p := hashConfig.pool.Load().(*sync.Pool)
 	state := p.Get().(*hasherState)
 
 	var hexBuf [sha256.Size * 2]byte 
@@ -134,7 +129,7 @@ func hashString(value string) string {
 // Uses a pooled hasher instance — no per-call hasher allocation.
 // Must only be called when hashing is enabled (IsHashingEnabled() == true).
 func hashBytes(value []byte) []byte {
-	p := hashConfig.pool
+	p := hashConfig.pool.Load().(*sync.Pool)
 	state := p.Get().(*hasherState)
 
 	var hexBuf [sha256.Size * 2]byte

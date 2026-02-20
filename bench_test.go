@@ -40,7 +40,7 @@ func BenchmarkRedactCall_RegularRedaction(b *testing.B) {
 func BenchmarkRedactCall_HashEnabled(b *testing.B) {
 	EnableHashing(nil)
 	defer DisableHashing()
-	s := Sprintf("user=%s action=%s %s", HashString("alice"), SafeString("login"))
+	s := Sprintf("user=%s action=%s", HashString("alice"), SafeString("login"))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = s.Redact()
