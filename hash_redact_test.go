@@ -16,10 +16,11 @@ package redact
 
 import (
 	"reflect"
+	"strings"
+	"sync"
 	"testing"
 )
 
-// TestHashRedact_EndToEnd tests the full Sprintf → Redact pipeline for hash types.
 func TestHashRedact_EndToEnd(t *testing.T) {
 	EnableHashing(nil)
 	defer DisableHashing()
@@ -35,7 +36,6 @@ func TestHashRedact_EndToEnd(t *testing.T) {
 	}
 }
 
-// TestHashRedact_DisabledHashing verifies hash markers are fully redacted when hashing is disabled.
 func TestHashRedact_DisabledHashing(t *testing.T) {
 	s := Sprintf("user=%s", HashString("alice"))
 
@@ -46,8 +46,6 @@ func TestHashRedact_DisabledHashing(t *testing.T) {
 	}
 }
 
-// TestHashRedact_MixedMarkers verifies that regular and hash markers in the same string
-// are handled correctly: regular markers become ‹×›, hash markers become ‹hash›.
 func TestHashRedact_MixedMarkers(t *testing.T) {
 	EnableHashing(nil)
 	defer DisableHashing()
@@ -61,7 +59,6 @@ func TestHashRedact_MixedMarkers(t *testing.T) {
 	}
 }
 
-// TestHashRedact_FormatVerbs verifies that format verbs are respected for hash types.
 func TestHashRedact_FormatVerbs(t *testing.T) {
 	EnableHashing(nil)
 	defer DisableHashing()
@@ -92,7 +89,6 @@ func TestHashRedact_FormatVerbs(t *testing.T) {
 	}
 }
 
-// TestHashRedact_SafeWrapping verifies that Safe() takes priority over HashValue.
 func TestHashRedact_SafeWrapping(t *testing.T) {
 	EnableHashing(nil)
 	defer DisableHashing()
@@ -104,7 +100,6 @@ func TestHashRedact_SafeWrapping(t *testing.T) {
 	}
 }
 
-// TestHashRedact_UnsafeWrapping verifies that Unsafe() takes priority over HashValue.
 func TestHashRedact_UnsafeWrapping(t *testing.T) {
 	EnableHashing(nil)
 	defer DisableHashing()
@@ -119,7 +114,6 @@ func TestHashRedact_UnsafeWrapping(t *testing.T) {
 	}
 }
 
-// TestHashRedact_AllHashTypes verifies all concrete Hash* types work end-to-end.
 func TestHashRedact_AllHashTypes(t *testing.T) {
 	EnableHashing(nil)
 	defer DisableHashing()
@@ -150,7 +144,6 @@ func TestHashRedact_AllHashTypes(t *testing.T) {
 	}
 }
 
-// TestHashRedact_RedactableBytes verifies the RedactableBytes.Redact() hash path.
 func TestHashRedact_RedactableBytes(t *testing.T) {
 	EnableHashing(nil)
 	defer DisableHashing()
@@ -163,13 +156,11 @@ func TestHashRedact_RedactableBytes(t *testing.T) {
 		t.Errorf("expected %q, got %q", expected, redacted)
 	}
 
-	// String and bytes redaction should produce the same result.
 	if string(redacted) != string(s.Redact()) {
 		t.Errorf("string and bytes redaction differ: %q vs %q", s.Redact(), redacted)
 	}
 }
 
-// TestHashRedact_StripMarkers verifies StripMarkers on hash-marked strings.
 func TestHashRedact_StripMarkers(t *testing.T) {
 	EnableHashing(nil)
 	defer DisableHashing()
@@ -196,7 +187,6 @@ func TestHashRedact_EnableAfterFormat(t *testing.T) {
 	}
 }
 
-// TestHashRedact_MultipleHashMarkers verifies multiple hash markers in one string.
 func TestHashRedact_MultipleHashMarkers(t *testing.T) {
 	EnableHashing(nil)
 	defer DisableHashing()
@@ -211,7 +201,6 @@ func TestHashRedact_MultipleHashMarkers(t *testing.T) {
 	}
 }
 
-// TestHashRedact_WithSalt verifies that salted hashing produces different output than unsalted.
 func TestHashRedact_WithSalt(t *testing.T) {
 	defer DisableHashing()
 
@@ -266,7 +255,6 @@ func TestHashRedact_ReflectValue(t *testing.T) {
 	}
 }
 
-// TestHashRedact_Sprint verifies Sprint with HashValue.
 func TestHashRedact_Sprint(t *testing.T) {
 	EnableHashing(nil)
 	defer DisableHashing()
@@ -281,7 +269,6 @@ func TestHashRedact_Sprint(t *testing.T) {
 	}
 }
 
-// TestHashRedact_HashBytes verifies HashBytes ([]byte type) end-to-end.``
 func TestHashRedact_HashBytes(t *testing.T) {
 	EnableHashing(nil)
 	defer DisableHashing()
@@ -296,7 +283,6 @@ func TestHashRedact_HashBytes(t *testing.T) {
 	}
 }
 
-// TestHashRedact_ToggleTransitions verifies Enable -> Disable -> Enable transitions.
 func TestHashRedact_ToggleTransitions(t *testing.T) {
 	defer DisableHashing()
 
@@ -318,13 +304,102 @@ func TestHashRedact_ToggleTransitions(t *testing.T) {
 	}
 }
 
-// TestHashRedact_RedactableBytesDisabled verifies bytes-path behavior when hashing is disabled.
 func TestHashRedact_RedactableBytesDisabled(t *testing.T) {
-	defer DisableHashing()
 	DisableHashing()
 
 	s := Sprintf("user=%s", HashString("alice"))
 	if redacted := s.ToBytes().Redact(); string(redacted) != string(RedactableBytes("user=‹×›")) {
 		t.Errorf("expected %q, got %q", RedactableBytes("user=‹×›"), redacted)
+	}
+}
+
+// TestHashRedact_ConcurrentToggle exercises concurrent Enable/Disable/Redact
+// calls to verify there are no races or panics under contention.
+func TestHashRedact_ConcurrentToggle(t *testing.T) {
+	defer DisableHashing()
+
+	s := Sprintf("user=%s action=%s", HashString("alice"), "login")
+
+	var wg sync.WaitGroup
+	const goroutines = 8
+	const iterations = 500
+
+	for g := 0; g < goroutines; g++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				switch id % 3 {
+				case 0:
+					EnableHashing(nil)
+				case 1:
+					EnableHashing([]byte("salt"))
+				case 2:
+					DisableHashing()
+				}
+				redacted := s.Redact()
+				// The raw value must never leak through redaction.
+				if strings.Contains(string(redacted), "alice") {
+					t.Errorf("raw value leaked: %q", redacted)
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+}
+
+// TestHashRedact_AdjacentZones verifies that the buffer's zone-merging
+// optimization does not combine a hash zone with an adjacent unsafe zone.
+func TestHashRedact_AdjacentZones(t *testing.T) {
+	EnableHashing(nil)
+	defer DisableHashing()
+
+	tests := []struct {
+		name         string
+		input        RedactableString
+		expectedPre  string
+		expectedPost string
+	}{
+		{
+			"hash then unsafe (no separator)",
+			Sprintf("%s%s", HashString("alice"), "bob"),
+			"‹†alice›‹bob›",
+			"‹2bd806c9›‹×›",
+		},
+		{
+			"unsafe then hash (no separator)",
+			Sprintf("%s%s", "bob", HashString("alice")),
+			"‹bob›‹†alice›",
+			"‹×›‹2bd806c9›",
+		},
+		{
+			"hash then hash (no separator)",
+			Sprintf("%s%s", HashString("alice"), HashString("bob")),
+			"‹†alice›‹†bob›",
+			"‹2bd806c9›‹81b637d8›",
+		},
+		{
+			"unsafe then unsafe (merge is ok)",
+			Sprintf("%s%s", "alice", "bob"),
+			"‹alicebob›",
+			"‹×›",
+		},
+		{
+			"hash with space separator",
+			Sprintf("%s %s", "alice", HashString("bob")),
+			"‹alice› ‹†bob›",
+			"‹×› ‹81b637d8›",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if string(tc.input) != tc.expectedPre {
+				t.Errorf("pre-redaction:\n  expected %q\n  got      %q", tc.expectedPre, tc.input)
+			}
+			if redacted := tc.input.Redact(); string(redacted) != tc.expectedPost {
+				t.Errorf("post-redaction:\n  expected %q\n  got      %q", tc.expectedPost, redacted)
+			}
+		})
 	}
 }
