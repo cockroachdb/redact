@@ -92,7 +92,7 @@ func (s RedactableBytes) Redact() RedactableBytes {
 	}
 	result := ReStripSensitive.ReplaceAllFunc([]byte(s), func(match []byte) []byte {
 		if len(match) > len(StartBytes)+len(EndBytes) &&
-			bytes.Equal(match[len(StartBytes):len(StartBytes)+len(HashPrefixS)], []byte(HashPrefixS)) {
+			bytes.Equal(match[len(StartBytes):len(StartBytes)+len(HashPrefixS)], HashPrefixBytes) {
 			value := match[len(StartBytes)+len(HashPrefixS) : len(match)-len(EndBytes)]
 			hashed := hashBytes(value)
 			res := make([]byte, len(StartBytes)+len(hashed)+len(EndBytes))

@@ -37,6 +37,7 @@ var (
 	EndBytes         = []byte(EndS)
 	EscapeMarkBytes  = []byte(EscapeMarkS)
 	RedactedBytes    = []byte(RedactedS)
+	HashPrefixBytes  = []byte(HashPrefixS)
 	ReStripSensitive = regexp.MustCompile(StartS + HashPrefixS + "?" + "[^" + StartS + EndS + "]*" + EndS)
 	ReStripMarkers   = regexp.MustCompile("[" + StartS + EndS + HashPrefixS + "]")
 )
