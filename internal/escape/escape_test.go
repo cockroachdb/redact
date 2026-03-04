@@ -37,6 +37,9 @@ func TestInternalEscape(t *testing.T) {
 		{[]byte("abc\n‹d\nef›\n \n\n "), len([]byte("abc")), true, true, "abc›\n‹?d›\n‹ef?"},
 		{[]byte("‹abc› ‹def›"), len([]byte("‹abc› ")), true, true, "‹abc› ?def?"},
 		{[]byte("abc‹\ndef"), len([]byte("abc‹")), true, true, "abc\n‹def"},
+		{[]byte("†abc"), 0, false, false, "?abc"},
+		{[]byte("‹†abc›"), 3, false, false, "‹?abc?"},
+		{[]byte("hello†world"), 0, false, false, "hello?world"},
 	}
 
 	for _, tc := range testCases {
