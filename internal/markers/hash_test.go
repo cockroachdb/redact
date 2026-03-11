@@ -66,36 +66,19 @@ func TestHash(t *testing.T) {
 		},
 	}
 
-	t.Run("string", func(t *testing.T) {
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				EnableHashing(tc.salt)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			EnableHashing(tc.salt)
 
-				resultString := hashString(tc.input)
-				if resultString != tc.expected {
-					t.Errorf("hashString(%q) = %q, expected %q", tc.input, resultString, tc.expected)
-				}
-				if len(resultString) != 8 {
-					t.Errorf("hashString(%q) returned %d characters, expected 8", tc.input, len(resultString))
-				}
-			})
-		}
-	})
-
-	t.Run("bytes", func(t *testing.T) {
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				EnableHashing(tc.salt)
-				resultBytes := hashBytes([]byte(tc.input))
-				if string(resultBytes) != tc.expected {
-					t.Errorf("hashBytes(%q) = %q, expected %q", tc.input, resultBytes, tc.expected)
-				}
-				if len(resultBytes) != 8 {
-					t.Errorf("hashBytes(%q) returned %d bytes, expected 8", tc.input, len(resultBytes))
-				}
-			})
-		}
-	})
+			result := string(appendHash(nil, []byte(tc.input)))
+			if result != tc.expected {
+				t.Errorf("appendHash(%q) = %q, expected %q", tc.input, result, tc.expected)
+			}
+			if len(result) != 8 {
+				t.Errorf("appendHash(%q) returned %d characters, expected 8", tc.input, len(result))
+			}
+		})
+	}
 }
 
 func TestHashDeterminism(t *testing.T) {
@@ -106,37 +89,18 @@ func TestHashDeterminism(t *testing.T) {
 	input := "test-value"
 	input2 := "different-value"
 
-	t.Run("hashString", func(t *testing.T) {
-		// Same input should always produce same output
-		hash1 := hashString(input)
-		hash2 := hashString(input)
+	// Same input should always produce same output.
+	hash1 := string(appendHash(nil, []byte(input)))
+	hash2 := string(appendHash(nil, []byte(input)))
 
-		if hash1 != hash2 {
-			t.Errorf("hashString is not deterministic: hashString(%q) returned %q and %q", input, hash1, hash2)
-		}
+	if hash1 != hash2 {
+		t.Errorf("appendHash is not deterministic: returned %q and %q for %q", hash1, hash2, input)
+	}
 
-		// Different inputs should produce different outputs
-		hash3 := hashString(input2)
+	// Different inputs should produce different outputs.
+	hash3 := string(appendHash(nil, []byte(input2)))
 
-		if hash1 == hash3 {
-			t.Errorf("Different inputs produced same hash: hashString(%q) = hashString(%q) = %q", input, input2, hash1)
-		}
-	})
-
-	t.Run("hashBytes", func(t *testing.T) {
-		// Same input should always produce same output
-		hash1 := hashBytes([]byte(input))
-		hash2 := hashBytes([]byte(input))
-
-		if string(hash1) != string(hash2) {
-			t.Errorf("hashBytes is not deterministic: hashBytes(%q) returned %q and %q", input, hash1, hash2)
-		}
-
-		// Different inputs should produce different outputs
-		hash3 := hashBytes([]byte(input2))
-
-		if string(hash1) == string(hash3) {
-			t.Errorf("Different inputs produced same hash: hashBytes(%q) = hashBytes(%q) = %q", input, input2, hash1)
-		}
-	})
+	if hash1 == hash3 {
+		t.Errorf("Different inputs produced same hash: appendHash(%q) = appendHash(%q) = %q", input, input2, hash1)
+	}
 }
