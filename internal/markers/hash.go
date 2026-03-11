@@ -48,7 +48,7 @@ import (
 const defaultHashLength = 8
 
 // compile-time assertion to guarantee defaultHashLength doesn't exceed hex-encoded hash length.
-var _ [sha256.Size*2 - defaultHashLength]byte 
+var _ [sha256.Size*2 - defaultHashLength]byte
 
 // hasherState holds a reusable hash.Hash and a pre-allocated Sum buffer.
 // sumBuf must live in the pool because Sum() is an interface method —
@@ -63,7 +63,7 @@ type hasherState struct {
 
 var hashConfig struct {
 	enabled atomic.Bool
-	pool    atomic.Value 
+	pool    atomic.Value
 }
 
 // EnableHashing enables hash-based redaction with an optional salt.
@@ -107,40 +107,20 @@ func IsHashingEnabled() bool {
 	return hashConfig.enabled.Load()
 }
 
-// hashString computes a truncated SHA-256 hash of the input string.
-// Uses a pooled hasher instance.
+// appendHash computes a truncated hash of value and appends the hex result
+// directly to dst, avoiding an intermediate allocation.
 // Must only be called when hashing is enabled (IsHashingEnabled() == true).
-func hashString(value string) string {
-	p := hashConfig.pool.Load().(*sync.Pool)
-	state := p.Get().(*hasherState)
-
-	var hexBuf [sha256.Size * 2]byte 
-	state.h.Reset()
-	state.h.Write([]byte(value))
-	sum := state.h.Sum(state.sumBuf[:0]) 
-	hex.Encode(hexBuf[:], sum)           
-
-	result := string(hexBuf[:defaultHashLength])
-	p.Put(state)
-	return result
-}
-
-// hashBytes computes a truncated SHA-256 hash of the input byte slice.
-// Uses a pooled hasher instance — no per-call hasher allocation.
-// Must only be called when hashing is enabled (IsHashingEnabled() == true).
-func hashBytes(value []byte) []byte {
+func appendHash(dst []byte, value []byte) []byte {
 	p := hashConfig.pool.Load().(*sync.Pool)
 	state := p.Get().(*hasherState)
 
 	var hexBuf [sha256.Size * 2]byte
-
 	state.h.Reset()
 	state.h.Write(value)
 	sum := state.h.Sum(state.sumBuf[:0])
 	hex.Encode(hexBuf[:], sum)
 
-	result := make([]byte, defaultHashLength)
-	copy(result, hexBuf[:defaultHashLength])
+	dst = append(dst, hexBuf[:defaultHashLength]...)
 	p.Put(state)
-	return result
+	return dst
 }

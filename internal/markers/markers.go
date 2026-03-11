@@ -42,18 +42,7 @@ func (s RedactableString) StripMarkers() string {
 // with hashed values (‹hash›) if hashing is enabled, otherwise
 // they are redacted like regular markers. The result string is still safe.
 func (s RedactableString) Redact() RedactableString {
-	if !IsHashingEnabled() {
-		return RedactableString(ReStripSensitive.ReplaceAllString(string(s), RedactedS))
-	}
-	result := ReStripSensitive.ReplaceAllStringFunc(string(s), func(match string) string {
-		if len(match) > len(StartS)+len(EndS) &&
-			match[len(StartS):len(StartS)+len(HashPrefixS)] == HashPrefixS {
-			value := match[len(StartS)+len(HashPrefixS) : len(match)-len(EndS)]
-			return StartS + hashString(value) + EndS
-		}
-		return RedactedS
-	})
-	return RedactableString(result)
+	return RedactableString(redactBytes([]byte(s)))
 }
 
 // ToBytes converts the string to a byte slice.
@@ -87,23 +76,47 @@ func (s RedactableBytes) StripMarkers() []byte {
 // with hashed values (‹hash›) if hashing is enabled, otherwise
 // they are redacted like regular markers.
 func (s RedactableBytes) Redact() RedactableBytes {
-	if !IsHashingEnabled() {
-		return RedactableBytes(ReStripSensitive.ReplaceAll([]byte(s), RedactedBytes))
+	return RedactableBytes(redactBytes([]byte(s)))
+}
+
+// redactBytes is the shared implementation for both RedactableString.Redact
+// and RedactableBytes.Redact.
+func redactBytes(data []byte) []byte {
+	// Fast path: no markers at all.
+	idx := bytes.Index(data, StartBytes)
+	if idx == -1 {
+		return data
 	}
-	result := ReStripSensitive.ReplaceAllFunc([]byte(s), func(match []byte) []byte {
-		if len(match) > len(StartBytes)+len(EndBytes) &&
-			bytes.Equal(match[len(StartBytes):len(StartBytes)+len(HashPrefixS)], HashPrefixBytes) {
-			value := match[len(StartBytes)+len(HashPrefixS) : len(match)-len(EndBytes)]
-			hashed := hashBytes(value)
-			res := make([]byte, len(StartBytes)+len(hashed)+len(EndBytes))
-			n := copy(res, StartBytes)
-			n += copy(res[n:], hashed)
-			copy(res[n:], EndBytes)
-			return res
+	hashEnabled := IsHashingEnabled()
+	// len(data) is exact for the non-hash path (markers always shrink) and a
+	// close lower bound for the hash path. Hash markers with content shorter
+	// than 5 bytes expand slightly (e.g. ‹†x› 10B → ‹abcdef01› 14B), but
+	// this is rare enough that letting append grow is cheaper than a pre-scan.
+	buf := make([]byte, 0, len(data))
+	pos := 0
+	for idx != -1 {
+		buf = append(buf, data[pos:pos+idx]...)
+		markerStart := pos + idx
+		contentStart := markerStart + StartLen
+		j := bytes.Index(data[contentStart:], EndBytes)
+		if j == -1 {
+			buf = append(buf, data[markerStart:]...)
+			return buf
 		}
-		return RedactedBytes
-	})
-	return RedactableBytes(result)
+		if hashEnabled && j >= len(HashPrefixBytes) &&
+			bytes.Equal(data[contentStart:contentStart+len(HashPrefixBytes)], HashPrefixBytes) {
+			value := data[contentStart+len(HashPrefixBytes) : contentStart+j]
+			buf = append(buf, StartBytes...)
+			buf = appendHash(buf, value)
+			buf = append(buf, EndBytes...)
+		} else {
+			buf = append(buf, RedactedBytes...)
+		}
+		pos = contentStart + j + EndLen
+		idx = bytes.Index(data[pos:], StartBytes)
+	}
+	buf = append(buf, data[pos:]...)
+	return buf
 }
 
 // ToString converts the byte slice to a string.
