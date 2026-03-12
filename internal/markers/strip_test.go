@@ -149,6 +149,35 @@ func TestStripMarkers(t *testing.T) {
 			expected: "こんにちは secret 世界",
 		},
 
+		// --- Non-marker Unicode sharing the 0xE2 lead byte ---
+		// These characters share the same first UTF-8 byte as our markers
+		// but must pass through unmodified.
+		{
+			name:     "euro sign preserved",
+			input:    "price: €100",
+			expected: "price: €100",
+		},
+		{
+			name:     "em dash preserved",
+			input:    "hello — world",
+			expected: "hello — world",
+		},
+		{
+			name:     "smart quotes preserved",
+			input:    "\u2018hello\u2019 \u201Cworld\u201D",
+			expected: "\u2018hello\u2019 \u201Cworld\u201D",
+		},
+		{
+			name:     "bullet and ellipsis preserved",
+			input:    "• item one … more",
+			expected: "• item one … more",
+		},
+		{
+			name:     "non-marker unicode with markers",
+			input:    "€" + StartS + "secret" + EndS + "—",
+			expected: "€secret—",
+		},
+
 		// --- Multiple marker characters in sequence ---
 		{
 			name:     "consecutive start markers",
@@ -262,6 +291,16 @@ func TestEscapeMarkers(t *testing.T) {
 			expected: "日本" + EscapeMarkS + "語",
 		},
 		{
+			name:     "non-marker unicode preserved",
+			input:    "€100 — Pro\u2019s \u201Cquote\u201D • item…",
+			expected: "€100 — Pro\u2019s \u201Cquote\u201D • item…",
+		},
+		{
+			name:     "non-marker unicode mixed with markers",
+			input:    "€" + StartS + "—" + EndS + "•",
+			expected: "€" + EscapeMarkS + "—" + EscapeMarkS + "•",
+		},
+		{
 			name:     "long string with markers",
 			input:    strings.Repeat("abc", 50) + StartS + strings.Repeat("def", 50),
 			expected: strings.Repeat("abc", 50) + EscapeMarkS + strings.Repeat("def", 50),
@@ -297,6 +336,14 @@ func BenchmarkStripMarkers_Bytes(b *testing.B) {
 
 func BenchmarkStripMarkers_NoMarkers(b *testing.B) {
 	s := RedactableString("hello world this is a plain string with no markers at all")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = s.StripMarkers()
+	}
+}
+
+func BenchmarkStripMarkers_NonMarkerUnicode(b *testing.B) {
+	s := RedactableString("price: €100 — Pro\u2019s \u201Cquote\u201D • item…")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = s.StripMarkers()

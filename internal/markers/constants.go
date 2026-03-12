@@ -14,8 +14,6 @@
 
 package markers
 
-import "regexp"
-
 // Internal constants.
 const (
 	Start       = '‹'
@@ -38,5 +36,4 @@ var (
 	EscapeMarkBytes = []byte(EscapeMarkS)
 	RedactedBytes   = []byte(RedactedS)
 	HashPrefixBytes = []byte(HashPrefixS)
-	ReStripMarkers  = regexp.MustCompile("[" + StartS + EndS + HashPrefixS + "]")
 )

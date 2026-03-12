@@ -35,7 +35,14 @@ type RedactableString string
 // RedactableString. This returns an unsafe string where all safe and
 // unsafe bits are mixed together.
 func (s RedactableString) StripMarkers() string {
-	return ReStripMarkers.ReplaceAllString(string(s), "")
+	// Avoid the []byte conversion when no markers are present.
+	// All marker characters share the same leading UTF-8 byte (0xE2).
+	// This may false-positive on other Unicode characters (€, —, etc.),
+	// but stripMarkersBytes will correctly leave them untouched.
+	if strings.IndexByte(string(s), StartBytes[0]) == -1 {
+		return string(s)
+	}
+	return string(stripMarkersBytes([]byte(s), nil))
 }
 
 // Redact replaces all occurrences of unsafe substrings by the
@@ -72,7 +79,7 @@ type RedactableBytes []byte
 // RedactableBytes. This returns an unsafe string where all safe and
 // unsafe bits are mixed together.
 func (s RedactableBytes) StripMarkers() []byte {
-	return ReStripMarkers.ReplaceAll([]byte(s), nil)
+	return stripMarkersBytes([]byte(s), nil)
 }
 
 // Redact replaces all occurrences of unsafe substrings by the
@@ -147,5 +154,57 @@ func RedactedMarker() []byte { return []byte(RedactedS) }
 // EscapeMarkers escapes the special delimiters from the provided
 // byte slice.
 func EscapeMarkers(s []byte) []byte {
-	return ReStripMarkers.ReplaceAll(s, EscapeMarkBytes)
+	return stripMarkersBytes(s, EscapeMarkBytes)
+}
+
+// markerLen is the UTF-8 byte length of the marker characters.
+// All marker characters (‹, ›, †) are 3-byte UTF-8 sequences sharing
+// the same first two bytes.
+const markerLen = 3
+
+func init() {
+	// Verify that all marker characters share the same 2-byte UTF-8 prefix
+	// and are exactly 3 bytes long.
+	for _, m := range [][]byte{StartBytes, EndBytes, HashPrefixBytes} {
+		if len(m) != markerLen || m[0] != StartBytes[0] || m[1] != StartBytes[1] {
+			panic("marker characters must be 3-byte UTF-8 with shared prefix")
+		}
+	}
+}
+
+// stripMarkersBytes scans data for marker characters (‹, ›, †) and either
+// removes them (when replacement is nil) or replaces them with the
+// replacement bytes.
+func stripMarkersBytes(data []byte, replacement []byte) []byte {
+	lead := StartBytes[0] // first byte shared by all marker chars
+	// Fast path: no marker characters possible.
+	first := bytes.IndexByte(data, lead)
+	if first == -1 {
+		return data
+	}
+
+	mid := StartBytes[1] // second byte shared by all marker chars
+	b2Start := StartBytes[2]
+	b2End := EndBytes[2]
+	b2Hash := HashPrefixBytes[2]
+
+	buf := make([]byte, 0, len(data))
+	pos := 0
+	for i := first; i < len(data); {
+		if data[i] == lead && i+2 < len(data) && data[i+1] == mid {
+			if b := data[i+2]; b == b2Start || b == b2End || b == b2Hash {
+				buf = append(buf, data[pos:i]...)
+				buf = append(buf, replacement...)
+				i += markerLen
+				pos = i
+				continue
+			}
+		}
+		i++
+	}
+	if pos == 0 {
+		return data
+	}
+	buf = append(buf, data[pos:]...)
+	return buf
 }
