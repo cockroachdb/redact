@@ -35,10 +35,22 @@ func InternalEscapeBytes(b []byte, startLoc int, breakNewLines, strip bool) (res
 	// Note: we use len(...RedactableS) and not len(...RedactableBytes)
 	// because the ...S variant is a compile-time constant so this
 	// accelerates the loops below.
-	start, ls := m.StartBytes, len(m.StartS)
-	end, le := m.EndBytes, len(m.EndS)
-	hashPrefix, lh := m.HashPrefixBytes, len(m.HashPrefixS)
+	start := m.StartBytes
+	ls := len(m.StartS)
+	end := m.EndBytes
+	le := len(m.EndS)
+	hashPrefix := m.HashPrefixBytes
+	lh := len(m.HashPrefixS)
 	escape := m.EscapeMarkBytes
+
+	// All markers share the same lead byte (0xE2) and second byte (0x80).
+	// This invariant is verified by the init() check in markers.go.
+	// We use this to skip over ASCII data quickly.
+	lead := start[0]
+	mid := start[1]
+	b2Start := start[2]
+	b2End := end[2]
+	b2Hash := hashPrefix[2]
 
 	// Trim final newlines/spaces, for convenience.
 	if strip {
@@ -64,68 +76,95 @@ func InternalEscapeBytes(b []byte, startLoc int, breakNewLines, strip bool) (res
 	// already copied into res (if copied=true).
 	k := 0
 
-	for i := startLoc; i < len(b); i++ {
-		if breakNewLines && b[i] == '\n' {
+	for i := startLoc; i < len(b); {
+		// Use bytes.IndexByte to skip over runs of bytes that can't
+		// start a marker. The lead byte (0xE2) starts all marker
+		// sequences. When breakNewLines is false, we only need to find
+		// the lead byte. When true, we need to handle newlines too.
+		remaining := b[i:]
+		var idx int
+		if !breakNewLines {
+			idx = bytes.IndexByte(remaining, lead)
+		} else {
+			// Find the first byte that could be interesting: lead or newline.
+			// Use two IndexByte calls and take the minimum.
+			idxLead := bytes.IndexByte(remaining, lead)
+			idxNL := bytes.IndexByte(remaining, '\n')
+			if idxLead < 0 {
+				idx = idxNL
+			} else if idxNL < 0 {
+				idx = idxLead
+			} else if idxLead < idxNL {
+				idx = idxLead
+			} else {
+				idx = idxNL
+			}
+		}
+		if idx < 0 {
+			break
+		}
+		i += idx
+		c := b[i]
+
+		if breakNewLines && c == '\n' {
 			if !copied {
-				// We only allocate an output slice when we know we definitely
-				// need it.
 				res = make([]byte, 0, len(b))
 				copied = true
 			}
 			res = append(res, b[k:i]...)
-			// Either add an end marker, or elide a start marker immediately prior.
+
+			// Close the current redaction section before the newline.
+			// If the last thing we emitted was a start marker, remove
+			// it instead of producing an empty ‹› pair.
 			if bytes.HasSuffix(res, start) {
 				res = res[:len(res)-ls]
 			} else {
 				res = append(res, end...)
 			}
-			// Advance to the last newline character. We want to forward
-			// them all in a single call to doWrite, for performance.
+
+			// Emit all consecutive newlines as-is, outside any
+			// redaction envelope.
 			lastNewLine := i
 			for lastNewLine < len(b) && b[lastNewLine] == '\n' {
 				lastNewLine++
 			}
 			res = append(res, b[i:lastNewLine]...)
+
+			// Reopen the redaction section for content after the
+			// newline(s). The caller will emit the closing marker.
 			res = append(res, start...)
 			k = lastNewLine
-			i = lastNewLine - 1
-		} else
-		// Ensure that occurrences of the delimiter inside the string get
-		// escaped.
-		// Reminder: ls and le are likely greater than 1, as we are scanning
-		// utf-8 encoded delimiters (the utf-8 encoding is multibyte).
-		if i+ls <= len(b) && bytes.Equal(b[i:i+ls], start) {
-			if !copied {
-				// We only allocate an output slice when we know we definitely
-				// need it.
-				res = make([]byte, 0, len(b)+len(escape))
-				copied = true
-			}
-			res = append(res, b[k:i]...)
-			res = append(res, escape...)
-			// Advance the counters by the length (in bytes) of the delimiter.
-			k = i + ls
-			i += ls - 1 /* -1 because we have i++ at the end of every iteration */
-		} else if i+le <= len(b) && bytes.Equal(b[i:i+le], end) {
-			if !copied {
-				// See the comment above about res allocation.
-				res = make([]byte, 0, len(b)+len(escape))
-				copied = true
-			}
-			res = append(res, b[k:i]...)
-			res = append(res, escape...)
-			// Advance the counters by the length (in bytes) of the delimiter.
-			k = i + le
-			i += le - 1 /* -1 because we have i++ at the end of every iteration */
-		} else if i+lh <= len(b) && bytes.Equal(b[i:i+lh], hashPrefix) {
+			i = lastNewLine
+			continue
+		}
+
+		// c == lead (0xE2). Check if we have a full marker.
+		if i+2 >= len(b) || b[i+1] != mid {
+			i++
+			continue
+		}
+
+		b2 := b[i+2]
+		markerLen := 0
+		if b2 == b2Start {
+			markerLen = ls
+		} else if b2 == b2End {
+			markerLen = le
+		} else if b2 == b2Hash {
+			markerLen = lh
+		}
+
+		if markerLen > 0 {
 			if !copied {
 				res = make([]byte, 0, len(b)+len(escape))
 				copied = true
 			}
 			res = append(res, b[k:i]...)
 			res = append(res, escape...)
-			k = i + lh
-			i += lh - 1
+			k = i + markerLen
+			i += markerLen
+		} else {
+			i++
 		}
 	}
 	// If the string terminates with an invalid utf-8 sequence, we

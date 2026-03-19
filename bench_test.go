@@ -25,6 +25,61 @@ func BenchmarkRedact(b *testing.B) {
 	}
 }
 
+type benchAddr struct {
+	Host string
+	Port int
+}
+
+func (a benchAddr) SafeFormat(w SafePrinter, _ rune) {
+	w.Printf("%s:%d", a.Host, Safe(a.Port))
+}
+
+type benchRequest struct {
+	Method string
+	Path   string
+	From   benchAddr
+}
+
+func (r benchRequest) SafeFormat(w SafePrinter, _ rune) {
+	w.Printf("%s %s from %v", Safe(r.Method), r.Path, r.From)
+}
+
+func BenchmarkSprintfWithSafeFormatter(b *testing.B) {
+	req := benchRequest{
+		Method: "GET",
+		Path:   "/api/v1/users",
+		From:   benchAddr{Host: "192.168.1.1", Port: 8080},
+	}
+
+	b.Run("single_struct", func(b *testing.B) {
+		addr := benchAddr{Host: "10.0.0.1", Port: 5432}
+		for i := 0; i < b.N; i++ {
+			_ = Sprintf("connecting to %v", addr)
+		}
+	})
+
+	b.Run("nested_structs", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_ = Sprintf("received %v", req)
+		}
+	})
+
+	b.Run("multiple_structs", func(b *testing.B) {
+		src := benchAddr{Host: "10.0.0.1", Port: 3000}
+		dst := benchAddr{Host: "10.0.0.2", Port: 5432}
+		for i := 0; i < b.N; i++ {
+			_ = Sprintf("proxy %v -> %v for %v", src, dst, req)
+		}
+	})
+
+	b.Run("sprint_mixed", func(b *testing.B) {
+		addr := benchAddr{Host: "10.0.0.1", Port: 5432}
+		for i := 0; i < b.N; i++ {
+			_ = Sprint("request ", req, " via ", addr, " user=", "alice")
+		}
+	})
+}
+
 // BenchmarkRedactCall_PlainMarkers calls .Redact() on a string with only
 // regular ‹...› markers (no hash markers). This is the baseline.
 func BenchmarkRedactCall_RegularRedaction(b *testing.B) {
@@ -57,4 +112,3 @@ func BenchmarkRedactCall_HashWithSalt(b *testing.B) {
 		_ = s.Redact()
 	}
 }
-
